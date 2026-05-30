@@ -39,18 +39,18 @@ export function PlayerCard({ player, actionLabel, onAction, actionDisabled, show
         {player.photoUrl ? (
           <Image
             src={player.photoUrl}
-            alt={player.name}
+            alt={player.shortName}
             width={48}
             height={48}
             className="h-12 w-12 rounded-full object-cover border border-zinc-200"
           />
         ) : (
           <div className="h-12 w-12 rounded-full bg-zinc-200 dark:bg-zinc-700 flex items-center justify-center text-lg font-bold text-zinc-500">
-            {player.name.charAt(0)}
+            {player.shortName.charAt(0)}
           </div>
         )}
         <div className="flex-1 min-w-0">
-          <p className="font-semibold text-zinc-900 dark:text-white truncate">{player.name}</p>
+          <p className="font-semibold text-zinc-900 dark:text-white truncate">{player.shortName}</p>
           <p className="text-xs text-zinc-500 truncate">{player.position} · {player.club}</p>
         </div>
         <span className={`rounded px-2 py-0.5 text-sm font-bold ${overallColor(player.stats.overall)}`}>

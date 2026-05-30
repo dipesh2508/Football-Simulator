@@ -54,6 +54,7 @@ interface ClubEntry {
 export interface PlayerSeedEntry {
   apiId: number;
   name: string;
+  shortName: string;
   nationality: string;
   club: string;
   clubApiId: number;
@@ -136,6 +137,18 @@ function mapPositionGroup(positionStr: string): PositionGroup {
   if (p.includes('defender')) return 'DEF';
   if (p.includes('midfielder')) return 'MID';
   return 'FWD';
+}
+
+// ─── Generate short name from full name ───────────────────────────────────────
+
+function generateShortName(fullName: string): string {
+  const parts = fullName.trim().split(/\s+/);
+  if (parts.length === 0) return fullName.slice(0, 10);
+  if (parts.length === 1) return parts[0].slice(0, 10);
+  // First initial + last name: "J. Bellingham"
+  const firstInitial = parts[0].charAt(0);
+  const lastName = parts[parts.length - 1];
+  return `${firstInitial}. ${lastName}`.slice(0, 15);
 }
 
 function mapPosition(positionStr: string, positionGroup: PositionGroup): Position {
@@ -292,6 +305,7 @@ async function fetchClub(
       const entry: PlayerSeedEntry = {
         apiId: p.player.id,
         name: p.player.name,
+        shortName: generateShortName(p.player.name),
         nationality: p.player.nationality ?? '',
         club: clubName,
         clubApiId,

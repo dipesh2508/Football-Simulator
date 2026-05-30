@@ -118,6 +118,17 @@ function mapPositionGroup(positionStr: string): PositionGroup {
   return 'FWD';
 }
 
+/** Generate short name from full name (e.g., "Jude Victor William Bellingham" -> "J. Bellingham") */
+function generateShortName(fullName: string): string {
+  const parts = fullName.trim().split(/\s+/);
+  if (parts.length === 0) return fullName.slice(0, 10);
+  if (parts.length === 1) return parts[0].slice(0, 10);
+  // First initial + last name: "J. Bellingham"
+  const firstInitial = parts[0].charAt(0);
+  const lastName = parts[parts.length - 1];
+  return `${firstInitial}. ${lastName}`.slice(0, 15);
+}
+
 /** Derive game stats from real match statistics */
 function deriveStats(
   apiPlayer: ApiFootballPlayer,
@@ -279,6 +290,7 @@ async function fetchPlayersForLeague(
               $set: {
                 apiId: p.player.id,
                 name: p.player.name,
+                shortName: generateShortName(p.player.name),
                 nationality: p.player.nationality ?? '',
                 club: stat.team.name,
                 clubApiId: stat.team.id,

@@ -382,7 +382,7 @@ export default function LineupPage() {
                   >
                     {slot.player ? (
                       <span className="text-center px-0.5 leading-none">
-                        {slot.player.name.split(' ').pop()?.slice(0, 8)}
+                        {slot.player.shortName.slice(0, 8)}
                       </span>
                     ) : (
                       <span className="text-lg opacity-60">+</span>
@@ -431,7 +431,7 @@ export default function LineupPage() {
                   onClick={() => removePlayer(activeSlot)}
                   className="w-full rounded-lg border border-red-300 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400 transition"
                 >
-                  Remove {activeSlotData.player.name}
+                  Remove {activeSlotData.player.shortName}
                 </button>
               )}
 

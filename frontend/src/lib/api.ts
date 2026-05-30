@@ -109,6 +109,7 @@ export interface Player {
   _id: string;
   apiId: number;
   name: string;
+  shortName: string;
   nationality: string;
   club: string;
   league: string;

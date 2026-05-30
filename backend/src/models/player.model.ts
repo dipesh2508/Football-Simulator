@@ -4,6 +4,7 @@ import { League, Position, PositionGroup, PlayerStats } from '@/types/game.types
 export interface IPlayer extends Document {
   apiId: number;
   name: string;
+  shortName: string;
   nationality: string;
   club: string;
   clubApiId: number;
@@ -25,6 +26,7 @@ const PlayerSchema = new Schema<IPlayer>(
   {
     apiId: { type: Number, required: true, unique: true },
     name: { type: String, required: true },
+    shortName: { type: String, required: true },
     nationality: { type: String, default: '' },
     club: { type: String, required: true },
     clubApiId: { type: Number, default: 0 },

@@ -64,7 +64,7 @@ export default function TransfersPage() {
     try {
       const res = await api.buyPlayer(sessionId, player._id);
       if (res.success) {
-        showToast(`✓ ${player.name} signed!`, true);
+        showToast(`✓ ${player.shortName} signed!`, true);
         setBudget(res.budget!);
         await fetchMarket();
         await fetchSquad();

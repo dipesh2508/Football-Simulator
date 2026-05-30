@@ -281,6 +281,7 @@ async function main() {
     const entry: PlayerSeedEntry = {
       apiId: parseInt(row.player_id) || 0,
       name: longName,
+      shortName: row.short_name ?? 'Unknown',
       nationality: row.nationality_name ?? '',
       club: normalizedClub,
       clubApiId: parseInt(row.club_team_id) || 0,
