@@ -1,0 +1,190 @@
+import { Request, Response } from 'express';
+import { Types } from 'mongoose';
+import { GameSession } from '@/models/gameSession.model';
+import { Club } from '@/models/club.model';
+import { Player } from '@/models/player.model';
+import { calculateLikelihood, rollTransferDice } from '@/utils/likelihood.util';
+import { runAITransfers } from '@/utils/aiTransfer.util';
+
+/** POST /api/sessions/:sessionId/buy */
+export async function buyPlayer(req: Request, res: Response): Promise<void> {
+  const { playerId } = req.body as { playerId: string };
+
+  if (!playerId) {
+    res.status(400).json({ error: 'playerId is required' });
+    return;
+  }
+
+  const session = await GameSession.findOne({ sessionId: req.params.sessionId });
+  if (!session) {
+    res.status(404).json({ error: 'Session not found or expired' });
+    return;
+  }
+
+  if (session.phase !== 'summer_transfer' && session.phase !== 'january_transfer') {
+    res.status(409).json({ error: 'Transfer window is not open' });
+    return;
+  }
+
+  const player = await Player.findById(playerId);
+  if (!player) {
+    res.status(404).json({ error: 'Player not found' });
+    return;
+  }
+
+  // Check player is not already in this session's squad
+  const alreadyOwned = (session.squad as Types.ObjectId[]).some((id) => id.equals(playerId));
+  if (alreadyOwned) {
+    res.status(409).json({ error: 'Player is already in your squad' });
+    return;
+  }
+
+  // Budget check
+  if (player.marketValue > session.budget) {
+    res.status(400).json({
+      error: `Insufficient budget. Player costs £${player.marketValue}m, you have £${session.budget}m`,
+    });
+    return;
+  }
+
+  // Likelihood check
+  const [userClub, allClubs] = await Promise.all([
+    Club.findOne({ name: session.userTeam }),
+    Club.find({}),
+  ]);
+
+  if (!userClub) {
+    res.status(500).json({ error: 'Could not find your club data' });
+    return;
+  }
+
+  const likelihood = calculateLikelihood(player, userClub, allClubs);
+  const success = rollTransferDice(likelihood.score);
+
+  if (!success) {
+    res.status(200).json({
+      success: false,
+      message: `Deal failed — ${player.name} chose not to join ${session.userTeam}.`,
+      likelihood,
+    });
+    return;
+  }
+
+  // Deduct fee and add to squad
+  const window = session.phase === 'summer_transfer' ? 'summer' : 'january';
+  session.budget = Math.round((session.budget - player.marketValue) * 10) / 10;
+  (session.squad as Types.ObjectId[]).push(new Types.ObjectId(playerId));
+  session.transfers.push({
+    playerId: playerId.toString(),
+    playerName: player.name,
+    fee: player.marketValue,
+    window,
+    type: 'buy',
+    timestamp: new Date(),
+  });
+
+  await session.save();
+
+  res.json({
+    success: true,
+    message: `${player.name} has joined ${session.userTeam}!`,
+    budget: session.budget,
+    likelihood,
+    player: { name: player.name, position: player.position, overall: player.stats.overall },
+  });
+}
+
+/** POST /api/sessions/:sessionId/sell */
+export async function sellPlayer(req: Request, res: Response): Promise<void> {
+  const { playerId } = req.body as { playerId: string };
+
+  if (!playerId) {
+    res.status(400).json({ error: 'playerId is required' });
+    return;
+  }
+
+  const session = await GameSession.findOne({ sessionId: req.params.sessionId });
+  if (!session) {
+    res.status(404).json({ error: 'Session not found or expired' });
+    return;
+  }
+
+  if (session.phase !== 'summer_transfer' && session.phase !== 'january_transfer') {
+    res.status(409).json({ error: 'Transfer window is not open' });
+    return;
+  }
+
+  const squadIds = session.squad as Types.ObjectId[];
+  const idx = squadIds.findIndex((id) => id.equals(playerId));
+
+  if (idx === -1) {
+    res.status(400).json({ error: 'Player is not in your squad' });
+    return;
+  }
+
+  const player = await Player.findById(playerId);
+  if (!player) {
+    res.status(404).json({ error: 'Player not found' });
+    return;
+  }
+
+  // Sell at 80% of market value
+  const sellFee = Math.round(player.marketValue * 0.8 * 10) / 10;
+  const window = session.phase === 'summer_transfer' ? 'summer' : 'january';
+
+  squadIds.splice(idx, 1);
+  session.budget = Math.round((session.budget + sellFee) * 10) / 10;
+  session.transfers.push({
+    playerId: playerId.toString(),
+    playerName: player.name,
+    fee: sellFee,
+    window,
+    type: 'sell',
+    timestamp: new Date(),
+  });
+
+  await session.save();
+
+  res.json({
+    success: true,
+    message: `${player.name} sold for £${sellFee}m`,
+    budget: session.budget,
+  });
+}
+
+/** POST /api/sessions/:sessionId/transfers/confirm — Close window, run AI transfers */
+export async function confirmTransferWindow(req: Request, res: Response): Promise<void> {
+  const session = await GameSession.findOne({ sessionId: req.params.sessionId });
+  if (!session) {
+    res.status(404).json({ error: 'Session not found or expired' });
+    return;
+  }
+
+  if (session.phase !== 'summer_transfer' && session.phase !== 'january_transfer') {
+    res.status(409).json({ error: 'Transfer window is not currently open' });
+    return;
+  }
+
+  // Run AI transfers for all other PL clubs
+  const [plClubs, allClubs, allPlayers] = await Promise.all([
+    Club.find({ isPL: true }),
+    Club.find({}),
+    Player.find({ _id: { $nin: session.squad as Types.ObjectId[] } }),
+  ]);
+
+  const { summaries } = await runAITransfers(session, plClubs, allClubs, allPlayers);
+
+  // Advance phase — both windows lead back into the season
+  session.phase = 'season';
+  await session.save();
+
+  res.json({
+    message: 'Transfer window closed',
+    nextPhase: session.phase,
+    aiActivity: summaries.map((s) => ({
+      club: s.club,
+      signings: s.bought.length,
+      topSignings: s.bought.slice(0, 3),
+    })),
+  });
+}
