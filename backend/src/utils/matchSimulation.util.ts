@@ -1,5 +1,5 @@
 import { IPlayer } from '@/models/player.model';
-import { MatchResult, GoalEvent, CardEvent } from '@/types/game.types';
+import { MatchResult, GoalEvent, CardEvent, SubstitutionEvent, TeamStrengthScore, PositionGroup } from '@/types/game.types';
 
 const HOME_ADVANTAGE = 1.15; // 15% attack boost for home team
 
@@ -14,6 +14,12 @@ const BASE_EXPECTED_GOALS = 1.2;
  * distribution for mismatched fixtures.
  */
 const STRENGTH_BASELINE = 40;
+
+/** Out-of-position penalty: 12% reduction on the player's positional contribution */
+const ALT_POSITION_PENALTY = 0.88;
+
+/** ~18% of goals are penalties */
+const PENALTY_GOAL_RATE = 0.18;
 
 /**
  * Poisson random variate — how many goals does a team score?
@@ -48,103 +54,215 @@ function topN<T>(arr: T[], n: number, scoreFn: (item: T) => number): T[] {
 }
 
 /**
- * Selects the best available XI from a squad pool.
- * Uses a 4-4-2 baseline shape: 1 GK, 4 DEF, 4 MID, 2 FWD.
- * If a position group is thin, fills gaps from overall-ranked remainders.
+ * Parses a formation string like "4-3-3" into per-group slot counts.
+ * Returns { GK, DEF, MID, FWD }.
  */
-export function selectBestXI(players: IPlayer[]): IPlayer[] {
-  const gks = players.filter((p) => p.positionGroup === 'GK');
-  const defs = players.filter((p) => p.positionGroup === 'DEF');
-  const mids = players.filter((p) => p.positionGroup === 'MID');
-  const fwds = players.filter((p) => p.positionGroup === 'FWD');
-
-  const selectedGK = topN(gks, 1, (p) => p.stats.overall);
-  const selectedDEF = topN(defs, 4, (p) => p.stats.defending * 0.7 + p.stats.overall * 0.3);
-  const selectedMID = topN(mids, 4, (p) => p.stats.passing * 0.35 + p.stats.overall * 0.5 + p.stats.shooting * 0.15);
-  const selectedFWD = topN(fwds, 2, (p) => p.stats.shooting * 0.6 + p.stats.dribbling * 0.2 + p.stats.overall * 0.2);
-
-  const xi = [...selectedGK, ...selectedDEF, ...selectedMID, ...selectedFWD];
-
-  // Fill any gaps (thin squad) from unselected players by overall
-  if (xi.length < 11) {
-    const selectedIds = new Set(xi.map((p) => String(p._id)));
-    const unused = players
-      .filter((p) => !selectedIds.has(String(p._id)))
-      .sort((a, b) => b.stats.overall - a.stats.overall);
-    xi.push(...unused.slice(0, 11 - xi.length));
+function parseFormationCounts(formation: string): Record<PositionGroup, number> {
+  const parts = formation.split('-').map(Number);
+  if (parts.length === 3 && parts.every((n) => !isNaN(n))) {
+    // Standard N-N-N: DEF-MID-FWD (GK always 1)
+    return { GK: 1, DEF: parts[0], MID: parts[1], FWD: parts[2] };
   }
+  // Fallback to 4-4-2
+  return { GK: 1, DEF: 4, MID: 4, FWD: 2 };
+}
 
-  return xi;
+/** Maps a Position to its PositionGroup */
+function positionToGroup(pos: string): PositionGroup {
+  if (pos === 'GK') return 'GK';
+  if (pos === 'CB' || pos === 'LB' || pos === 'RB') return 'DEF';
+  if (pos === 'CDM' || pos === 'CM' || pos === 'CAM') return 'MID';
+  return 'FWD';
 }
 
 /**
- * Calculates attack and defense ratings from the best XI.
- * All values normalized so equal-quality teams produce ~1.4 xG each.
+ * Tagged player used internally — carries an isAltPosition flag for
+ * the penalty calculation in teamStrength.
  */
-function teamStrength(players: IPlayer[]): { attack: number; defense: number } {
-  if (players.length === 0) return { attack: 72, defense: 72 };
+interface TaggedPlayer {
+  player: IPlayer;
+  isAltPosition: boolean;
+}
 
-  const xi = players.length <= 11 ? players : selectBestXI(players);
+/**
+ * Selects the best available XI from a squad pool, formation-aware.
+ * When a group is short, first tries players whose altPositions map to that group
+ * (tagged as isAltPosition), then falls back to any unselected player by overall.
+ */
+export function selectBestXI(players: IPlayer[], formation = '4-4-2'): IPlayer[] {
+  return selectBestXITagged(players, formation).map((t) => t.player);
+}
 
-  const gks = xi.filter((p) => p.positionGroup === 'GK');
-  const defs = xi.filter((p) => p.positionGroup === 'DEF');
-  const mids = xi.filter((p) => p.positionGroup === 'MID');
-  const fwds = xi.filter((p) => p.positionGroup === 'FWD');
+function selectBestXITagged(players: IPlayer[], formation = '4-4-2'): TaggedPlayer[] {
+  const counts = parseFormationCounts(formation);
+  const selected: TaggedPlayer[] = [];
+  const usedIds = new Set<string>();
+
+  const pickGroup = (group: PositionGroup, needed: number, scoreFn: (p: IPlayer) => number) => {
+    // Primary: players whose positionGroup matches
+    const primary = players
+      .filter((p) => p.positionGroup === group && !usedIds.has(String(p._id)))
+      .sort((a, b) => scoreFn(b) - scoreFn(a))
+      .slice(0, needed);
+
+    primary.forEach((p) => {
+      selected.push({ player: p, isAltPosition: false });
+      usedIds.add(String(p._id));
+    });
+
+    let remaining = needed - primary.length;
+    if (remaining <= 0) return;
+
+    // Alt-position fill: players whose altPositions include a position mapping to this group
+    const altCandidates = players
+      .filter((p) => !usedIds.has(String(p._id)) && p.altPositions?.some((ap) => positionToGroup(ap) === group))
+      .sort((a, b) => scoreFn(b) - scoreFn(a))
+      .slice(0, remaining);
+
+    altCandidates.forEach((p) => {
+      selected.push({ player: p, isAltPosition: true });
+      usedIds.add(String(p._id));
+    });
+
+    remaining -= altCandidates.length;
+    if (remaining <= 0) return;
+
+    // Final fallback: any unselected player by overall
+    const fallbacks = players
+      .filter((p) => !usedIds.has(String(p._id)))
+      .sort((a, b) => b.stats.overall - a.stats.overall)
+      .slice(0, remaining);
+
+    fallbacks.forEach((p) => {
+      selected.push({ player: p, isAltPosition: true });
+      usedIds.add(String(p._id));
+    });
+  };
+
+  pickGroup('GK', counts.GK, (p) => p.stats.overall);
+  pickGroup('DEF', counts.DEF, (p) => p.stats.defending * 0.7 + p.stats.overall * 0.3);
+  pickGroup('MID', counts.MID, (p) => p.stats.passing * 0.35 + p.stats.overall * 0.5 + p.stats.shooting * 0.15);
+  pickGroup('FWD', counts.FWD, (p) => p.stats.shooting * 0.6 + p.stats.dribbling * 0.2 + p.stats.overall * 0.2);
+
+  // If we still have fewer than 11, top up by overall
+  if (selected.length < 11) {
+    players
+      .filter((p) => !usedIds.has(String(p._id)))
+      .sort((a, b) => b.stats.overall - a.stats.overall)
+      .slice(0, 11 - selected.length)
+      .forEach((p) => {
+        selected.push({ player: p, isAltPosition: true });
+        usedIds.add(String(p._id));
+      });
+  }
+
+  return selected.slice(0, 11);
+}
+
+/**
+ * Calculates attack, midfield and defense ratings from a squad/XI.
+ * Applies ALT_POSITION_PENALTY on out-of-position players.
+ * Exported as calculateTeamStrengthScore for use in the teams endpoint.
+ */
+export function calculateTeamStrengthScore(players: IPlayer[], formation = '4-4-2'): TeamStrengthScore {
+  if (players.length === 0) return { attack: 72, midfield: 72, defence: 72, overall: 72 };
+
+  const tagged = players.length <= 11
+    ? players.map((p) => ({ player: p, isAltPosition: false }))
+    : selectBestXITagged(players, formation);
 
   const avg = (arr: number[]) => arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : 72;
+  const pen = (tagged: TaggedPlayer, val: number) => tagged.isAltPosition ? val * ALT_POSITION_PENALTY : val;
 
-  // Attack: FWDs contribute 65%, MIDs 35%
-  const fwdAttack = avg(fwds.map((p) => p.stats.shooting * 0.6 + p.stats.pace * 0.2 + p.stats.dribbling * 0.2));
-  const midAttack = avg(mids.map((p) => p.stats.shooting * 0.3 + p.stats.passing * 0.4 + p.stats.overall * 0.3));
-  const attack = fwds.length > 0
-    ? fwdAttack * 0.65 + midAttack * 0.35
-    : midAttack;
+  const gkTagged  = tagged.filter((t) => t.player.positionGroup === 'GK');
+  const defTagged = tagged.filter((t) => t.player.positionGroup === 'DEF' || (t.isAltPosition && t.player.altPositions?.some((p) => positionToGroup(p) === 'DEF')));
+  const midTagged = tagged.filter((t) => t.player.positionGroup === 'MID' || (t.isAltPosition && t.player.altPositions?.some((p) => positionToGroup(p) === 'MID')));
+  const fwdTagged = tagged.filter((t) => t.player.positionGroup === 'FWD' || (t.isAltPosition && t.player.altPositions?.some((p) => positionToGroup(p) === 'FWD')));
 
-  // Defense: DEFs contribute 65%, MIDs 15% (defensive shield), GK 20%
-  const defRating = avg(defs.map((p) => p.stats.defending * 0.7 + p.stats.overall * 0.3));
-  const midDef = avg(mids.map((p) => p.stats.defending * 0.5 + p.stats.overall * 0.5));
-  // GK 'defending' in FC26 is the outfield defending stat (~10–20 for GKs), not GK quality.
-  // Use 'overall' directly — it already encodes all GK attributes.
-  const gkRating = gks.length > 0 ? gks[0].stats.overall : 72;
+  // Use actual slot assignment for tagged filtering: simpler approach — filter by what was selected
+  const gks  = tagged.filter((t) => gkTagged.some((g) => String(g.player._id) === String(t.player._id)));
+  const defs = tagged.filter((t) => !gks.includes(t) && (t.player.positionGroup === 'DEF' || t.isAltPosition));
+  const mids = tagged.filter((t) => !gks.includes(t) && !defs.includes(t) && t.player.positionGroup === 'MID');
+  const fwds = tagged.filter((t) => !gks.includes(t) && !defs.includes(t) && !mids.includes(t));
 
-  const defense = defs.length > 0
-    ? defRating * 0.65 + midDef * 0.15 + gkRating * 0.20
-    : midDef * 0.50 + gkRating * 0.50;
+  // Re-derive from formation counts for clean slot allocation
+  const counts = parseFormationCounts(formation);
+  const slots: TaggedPlayer[][] = [[], [], [], []]; // GK, DEF, MID, FWD
+  const groupOrder: PositionGroup[] = ['GK', 'DEF', 'MID', 'FWD'];
+  let idx = 0;
+  for (let g = 0; g < 4; g++) {
+    for (let s = 0; s < counts[groupOrder[g]]; s++) {
+      if (tagged[idx]) slots[g].push(tagged[idx++]);
+    }
+  }
+  while (idx < tagged.length) slots[3].push(tagged[idx++]);
+
+  const gkSlots  = slots[0];
+  const defSlots = slots[1];
+  const midSlots = slots[2];
+  const fwdSlots = slots[3];
+
+  const fwdAttack = avg(fwdSlots.map((t) => pen(t, t.player.stats.shooting * 0.6 + t.player.stats.pace * 0.2 + t.player.stats.dribbling * 0.2)));
+  const midAttack = avg(midSlots.map((t) => pen(t, t.player.stats.shooting * 0.3 + t.player.stats.passing * 0.4 + t.player.stats.overall * 0.3)));
+  const attack = fwdSlots.length > 0
+    ? Math.max(40, fwdAttack * 0.65 + midAttack * 0.35)
+    : Math.max(40, midAttack);
+
+  const midfield = Math.max(40, avg(midSlots.map((t) => pen(t, t.player.stats.passing * 0.4 + t.player.stats.dribbling * 0.25 + t.player.stats.overall * 0.35))));
+
+  const defRating = avg(defSlots.map((t) => pen(t, t.player.stats.defending * 0.7 + t.player.stats.overall * 0.3)));
+  const midDef    = avg(midSlots.map((t) => pen(t, t.player.stats.defending * 0.5 + t.player.stats.overall * 0.5)));
+  const gkRating  = gkSlots.length > 0 ? gkSlots[0].player.stats.overall : 72;
+  const defence = defSlots.length > 0
+    ? Math.max(40, defRating * 0.65 + midDef * 0.15 + gkRating * 0.20)
+    : Math.max(40, midDef * 0.50 + gkRating * 0.50);
+
+  const overall = Math.round((attack + midfield + defence) / 3);
 
   return {
-    attack: Math.max(40, attack),
-    defense: Math.max(40, defense),
+    attack: Math.round(attack),
+    midfield: Math.round(midfield),
+    defence: Math.round(defence),
+    overall,
   };
+}
+
+// Legacy export used by season.controller — returns { attack, defense } shape
+function teamStrength(players: IPlayer[], formation = '4-4-2'): { attack: number; defense: number } {
+  const score = calculateTeamStrengthScore(players, formation);
+  return { attack: score.attack, defense: score.defence };
 }
 
 export interface SimulatedMatch {
   homeScore: number;
   awayScore: number;
   result: MatchResult;
+  /** All players who appeared (starting XI + subs) — for appearances tracking */
+  homeAppearances: IPlayer[];
+  awayAppearances: IPlayer[];
 }
 
 /**
  * Simulates a single match between two teams.
- * Expected goals formula: (attack / defense) * HOME_ADV * BASE_EXPECTED_GOALS
- * Equal teams at ~72 rating produce ~1.4 home / 1.2 away xG — realistic PL averages.
  *
  * @param homeTeamName  Name of the home team
  * @param awayTeamName  Name of the away team
- * @param homePlayers   Players available for the home team (best XI auto-selected if >11)
- * @param awayPlayers   Players available for the away team (best XI auto-selected if >11)
+ * @param homePlayers   Full squad for home team (best XI auto-selected if >11)
+ * @param awayPlayers   Full squad for away team (best XI auto-selected if >11)
+ * @param homeFormation Formation string for home team (default 4-4-2)
+ * @param awayFormation Formation string for away team (default 4-4-2)
  */
 export function simulateMatch(
   homeTeamName: string,
   awayTeamName: string,
   homePlayers: IPlayer[],
-  awayPlayers: IPlayer[]
+  awayPlayers: IPlayer[],
+  homeFormation = '4-4-2',
+  awayFormation = '4-4-2'
 ): SimulatedMatch {
-  const homeStrength = teamStrength(homePlayers);
-  const awayStrength = teamStrength(awayPlayers);
+  const homeStrength = teamStrength(homePlayers, homeFormation);
+  const awayStrength = teamStrength(awayPlayers, awayFormation);
 
-  // Offset both attack and defence by STRENGTH_BASELINE before dividing so that
-  // the gap between a 85-rated attack and a 65-rated defence is 45 vs 25 (1.8×)
-  // rather than 85 vs 65 (1.3×).  Equal teams are unchanged: ratio = 32/32 = 1.
   const effHomeAtk = Math.max(homeStrength.attack - STRENGTH_BASELINE, 5);
   const effAwayDef = Math.max(awayStrength.defense - STRENGTH_BASELINE, 5);
   const effAwayAtk = Math.max(awayStrength.attack - STRENGTH_BASELINE, 5);
@@ -156,12 +274,13 @@ export function simulateMatch(
   const homeScore = poissonRandom(Math.max(0.3, Math.min(homeLambda, 4.0)));
   const awayScore = poissonRandom(Math.max(0.2, Math.min(awayLambda, 3.5)));
 
-  // Use actual playing XI for goal/card attribution (not full bench)
-  const homeXI = homePlayers.length <= 11 ? homePlayers : selectBestXI(homePlayers);
-  const awayXI = awayPlayers.length <= 11 ? awayPlayers : selectBestXI(awayPlayers);
+  // Use actual playing XI for goal/card attribution
+  const homeXI = homePlayers.length <= 11 ? homePlayers : selectBestXI(homePlayers, homeFormation);
+  const awayXI = awayPlayers.length <= 11 ? awayPlayers : selectBestXI(awayPlayers, awayFormation);
 
   const goals: GoalEvent[] = [];
   const cards: CardEvent[] = [];
+  const substitutions: SubstitutionEvent[] = [];
 
   // ── Assign goals ──────────────────────────────────────────────────────────
   const assignGoalsForTeam = (teamName: string, numGoals: number, xi: IPlayer[]) => {
@@ -169,23 +288,38 @@ export function simulateMatch(
     if (scoringCandidates.length === 0) return;
 
     for (let i = 0; i < numGoals; i++) {
-      const scorer = weightedPick(scoringCandidates, (p) => {
-        const posWeight = p.positionGroup === 'FWD' ? 5 : p.positionGroup === 'MID' ? 2 : 0.5;
-        return (p.stats.shooting / 100) * posWeight;
-      });
+      const isPenalty = Math.random() < PENALTY_GOAL_RATE;
+
+      let scorer: IPlayer;
+      if (isPenalty) {
+        // Penalty takers: prefer FWD, then CAM, then anyone
+        const penaltyCandidates = scoringCandidates.filter(
+          (p) => p.positionGroup === 'FWD' || p.position === 'CAM'
+        );
+        const pool = penaltyCandidates.length > 0 ? penaltyCandidates : scoringCandidates;
+        scorer = weightedPick(pool, (p) => p.stats.shooting / 100);
+      } else {
+        scorer = weightedPick(scoringCandidates, (p) => {
+          const posWeight = p.positionGroup === 'FWD' ? 5 : p.positionGroup === 'MID' ? 2 : 0.5;
+          return (p.stats.shooting / 100) * posWeight;
+        });
+      }
 
       const assisterCandidates = scoringCandidates.filter((p) => p.apiId !== scorer.apiId);
       let assister: IPlayer | undefined;
-      if (assisterCandidates.length > 0 && Math.random() < 0.75) {
+      // Penalties rarely have a credited assist (25% chance)
+      const assistChance = isPenalty ? 0.25 : 0.75;
+      if (assisterCandidates.length > 0 && Math.random() < assistChance) {
         assister = weightedPick(assisterCandidates, (p) => p.stats.passing / 100);
       }
 
       goals.push({
-        scorerName: scorer.name,
+        scorerName: scorer.shortName,
         scorerApiId: scorer.apiId,
-        assisterName: assister?.name,
+        assisterName: assister?.shortName,
         assisterApiId: assister?.apiId,
         team: teamName,
+        isPenalty,
       });
     }
   };
@@ -196,11 +330,9 @@ export function simulateMatch(
   // ── Assign cards ──────────────────────────────────────────────────────────
   const assignCardsForTeam = (teamName: string, xi: IPlayer[]) => {
     xi.forEach((p) => {
-      // Yellow card probability: base 5% + physical aggression factor
       const yellowProb = 0.05 + (p.stats.physical / 100) * 0.06;
       if (Math.random() < yellowProb) {
         cards.push({ playerName: p.name, playerApiId: p.apiId, team: teamName, type: 'yellow' });
-        // 4% chance of second yellow → red
         if (Math.random() < 0.04) {
           cards.push({ playerName: p.name, playerApiId: p.apiId, team: teamName, type: 'red' });
         }
@@ -211,9 +343,82 @@ export function simulateMatch(
   assignCardsForTeam(homeTeamName, homeXI);
   assignCardsForTeam(awayTeamName, awayXI);
 
+  // ── Simulate substitutions ────────────────────────────────────────────────
+  const homeAppearances: IPlayer[] = [...homeXI];
+  const awayAppearances: IPlayer[] = [...awayXI];
+
+  const simulateSubstitutions = (
+    teamName: string,
+    xi: IPlayer[],
+    fullSquad: IPlayer[],
+    appearances: IPlayer[]
+  ) => {
+    const bench = fullSquad.filter((p) => !xi.some((s) => String(s._id) === String(p._id)));
+    if (bench.length === 0) return;
+
+    const numSubs = 2 + Math.floor(Math.random() * 2); // 2 or 3 subs
+    const xiPool = [...xi].filter((p) => p.positionGroup !== 'GK'); // GKs rarely subbed
+    const usedBench = new Set<string>();
+    const usedOff = new Set<string>();
+
+    for (let i = 0; i < numSubs && bench.length > 0; i++) {
+      const minute = 55 + Math.floor(Math.random() * 31); // 55–85'
+
+      // Pick a random outfield XI player to come off
+      const offCandidates = xiPool.filter((p) => !usedOff.has(String(p._id)));
+      if (offCandidates.length === 0) break;
+      const playerOff = offCandidates[Math.floor(Math.random() * offCandidates.length)];
+      usedOff.add(String(playerOff._id));
+
+      // Pick best available bench player from same position group (or any)
+      const samePosGroup = bench.filter(
+        (p) => p.positionGroup === playerOff.positionGroup && !usedBench.has(String(p._id))
+      );
+      const subPool = samePosGroup.length > 0
+        ? samePosGroup
+        : bench.filter((p) => !usedBench.has(String(p._id)));
+      if (subPool.length === 0) break;
+
+      const playerOn = topN(subPool, 1, (p) => p.stats.overall)[0];
+      usedBench.add(String(playerOn._id));
+
+      substitutions.push({
+        playerOffName: playerOff.name,
+        playerOffApiId: playerOff.apiId,
+        playerOnName: playerOn.name,
+        playerOnApiId: playerOn.apiId,
+        team: teamName,
+        minute,
+      });
+
+      appearances.push(playerOn);
+
+      // Substitute can score/assist for remaining time (weighted by time on pitch)
+      const timeWeight = (90 - minute) / 90;
+      if (Math.random() < timeWeight * 0.25 && playerOn.positionGroup !== 'GK') {
+        const isPenalty = Math.random() < PENALTY_GOAL_RATE;
+        goals.push({
+          scorerName: playerOn.shortName,
+          scorerApiId: playerOn.apiId,
+          team: teamName,
+          isPenalty,
+        });
+        if (teamName === homeTeamName) {
+          // These bonus goals do NOT change the match score — they are narrative only
+          // (score was already determined by Poisson). We skip modifying homeScore/awayScore.
+        }
+      }
+    }
+  };
+
+  simulateSubstitutions(homeTeamName, homeXI, homePlayers, homeAppearances);
+  simulateSubstitutions(awayTeamName, awayXI, awayPlayers, awayAppearances);
+
   return {
     homeScore,
     awayScore,
-    result: { homeScore, awayScore, goals, cards },
+    result: { homeScore, awayScore, goals, cards, substitutions },
+    homeAppearances,
+    awayAppearances,
   };
 }

@@ -11,6 +11,7 @@ export interface IPlayer extends Document {
   league: League;
   position: Position;
   positionGroup: PositionGroup;
+  altPositions: Position[];
   age: number;
   marketValue: number; // millions GBP
   wage: number; // weekly GBP
@@ -33,6 +34,7 @@ const PlayerSchema = new Schema<IPlayer>(
     league: { type: String, required: true },
     position: { type: String, required: true },
     positionGroup: { type: String, enum: ['GK', 'DEF', 'MID', 'FWD'], required: true },
+    altPositions: { type: [String], default: [] },
     age: { type: Number, required: true },
     marketValue: { type: Number, default: 1 },
     wage: { type: Number, default: 0 },

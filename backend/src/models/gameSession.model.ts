@@ -5,6 +5,7 @@ import {
   MatchResult,
   GoalEvent,
   CardEvent,
+  SubstitutionEvent,
   PlayerSeasonStats,
   TransferRecord,
   StandingEntry,
@@ -26,6 +27,7 @@ export interface IGameSession extends Document {
   expiresAt: Date;
   formation: string;
   startingXI: LineupSlot[];
+  aiSquads: Map<string, Types.ObjectId[]>;
 }
 
 const GoalEventSchema = new Schema<GoalEvent>(
@@ -35,6 +37,7 @@ const GoalEventSchema = new Schema<GoalEvent>(
     assisterName: String,
     assisterApiId: Number,
     team: String,
+    isPenalty: { type: Boolean, default: false },
   },
   { _id: false }
 );
@@ -49,12 +52,25 @@ const CardEventSchema = new Schema<CardEvent>(
   { _id: false }
 );
 
+const SubstitutionEventSchema = new Schema<SubstitutionEvent>(
+  {
+    playerOffName: String,
+    playerOffApiId: Number,
+    playerOnName: String,
+    playerOnApiId: Number,
+    team: String,
+    minute: Number,
+  },
+  { _id: false }
+);
+
 const MatchResultSchema = new Schema<MatchResult>(
   {
     homeScore: Number,
     awayScore: Number,
     goals: [GoalEventSchema],
     cards: [CardEventSchema],
+    substitutions: [SubstitutionEventSchema],
   },
   { _id: false }
 );
@@ -91,6 +107,7 @@ const PlayerSeasonStatsSchema = new Schema<PlayerSeasonStats>(
     playerApiId: Number,
     playerName: String,
     club: String,
+    appearances: { type: Number, default: 0 },
     goals: { type: Number, default: 0 },
     assists: { type: Number, default: 0 },
     cleanSheets: { type: Number, default: 0 },
@@ -137,9 +154,11 @@ const GameSessionSchema = new Schema<IGameSession>(
         label: { type: String, required: true },
         positionGroup: { type: String, required: true },
         playerId: { type: Schema.Types.ObjectId, ref: 'Player', default: null },
+        isAltPosition: { type: Boolean, default: false },
         _id: false,
       },
     ],
+    aiSquads: { type: Map, of: [{ type: Schema.Types.ObjectId, ref: 'Player' }], default: {} },
   },
   { timestamps: true }
 );

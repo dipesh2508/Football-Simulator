@@ -21,6 +21,7 @@ export function StatTable({ title, players, statKey, statLabel, userTeam }: Stat
               <th className="px-3 py-2 w-8">#</th>
               <th className="px-3 py-2">Player</th>
               <th className="px-3 py-2">Club</th>
+              <th className="px-3 py-2 text-center w-10">Apps</th>
               <th className="px-3 py-2 text-center">{statLabel}</th>
             </tr>
           </thead>
@@ -35,13 +36,14 @@ export function StatTable({ title, players, statKey, statLabel, userTeam }: Stat
                   <td className="px-3 py-2 text-zinc-500">{idx + 1}</td>
                   <td className="px-3 py-2 font-medium text-zinc-900 dark:text-white">{p.playerName}</td>
                   <td className="px-3 py-2 text-zinc-500">{p.club}</td>
+                  <td className="px-3 py-2 text-center text-zinc-400">{p.appearances ?? 0}</td>
                   <td className="px-3 py-2 text-center font-bold text-zinc-900 dark:text-white">{p[statKey]}</td>
                 </tr>
               );
             })}
             {players.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-3 py-4 text-center text-zinc-400">No data yet</td>
+                <td colSpan={5} className="px-3 py-4 text-center text-zinc-400">No data yet</td>
               </tr>
             )}
           </tbody>

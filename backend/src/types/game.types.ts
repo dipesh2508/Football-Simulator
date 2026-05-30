@@ -62,6 +62,7 @@ export interface GoalEvent {
   assisterName?: string;
   assisterApiId?: number;
   team: string;
+  isPenalty?: boolean;
 }
 
 export interface CardEvent {
@@ -71,11 +72,21 @@ export interface CardEvent {
   type: 'yellow' | 'red';
 }
 
+export interface SubstitutionEvent {
+  playerOffName: string;
+  playerOffApiId: number;
+  playerOnName: string;
+  playerOnApiId: number;
+  team: string;
+  minute: number;
+}
+
 export interface MatchResult {
   homeScore: number;
   awayScore: number;
   goals: GoalEvent[];
   cards: CardEvent[];
+  substitutions: SubstitutionEvent[];
 }
 
 export interface Fixture {
@@ -90,6 +101,7 @@ export interface PlayerSeasonStats {
   playerApiId: number;
   playerName: string;
   club: string;
+  appearances: number;
   goals: number;
   assists: number;
   cleanSheets: number;
@@ -132,6 +144,15 @@ export interface LineupSlot {
   label: string;
   positionGroup: PositionGroup;
   playerId?: string; // ObjectId as string
+  isAltPosition?: boolean;
+}
+
+/** Team strength breakdown for display purposes */
+export interface TeamStrengthScore {
+  attack: number;
+  midfield: number;
+  defence: number;
+  overall: number;
 }
 
 /** Pitch coordinate (percentage from top-left) for visual layout */

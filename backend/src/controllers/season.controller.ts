@@ -3,7 +3,7 @@ import { Types } from 'mongoose';
 import { GameSession } from '@/models/gameSession.model';
 import { Player, IPlayer } from '@/models/player.model';
 import { Club } from '@/models/club.model';
-import { simulateMatch, selectBestXI } from '@/utils/matchSimulation.util';
+import { simulateMatch, selectBestXI, calculateTeamStrengthScore } from '@/utils/matchSimulation.util';
 import { StandingEntry, PlayerSeasonStats } from '@/types/game.types';
 
 /** Update standings after a match result */
@@ -54,8 +54,9 @@ function getOrCreateStatEntry(
     entry = {
       playerId: (player._id as Types.ObjectId).toString(),
       playerApiId: player.apiId,
-      playerName: player.name,
+      playerName: player.shortName,
       club,
+      appearances: 0,
       goals: 0,
       assists: 0,
       cleanSheets: 0,
@@ -67,8 +68,18 @@ function getOrCreateStatEntry(
   return entry;
 }
 
-/** Build a representative squad for an AI club using top-rated players from DB */
-async function getAISquad(clubName: string): Promise<IPlayer[]> {
+/**
+ * Build a representative squad for an AI club.
+ * Uses session-aware aiSquads if available; falls back to DB top-20.
+ */
+async function getAISquad(clubName: string, session: any): Promise<IPlayer[]> {
+  const aiSquads = session.aiSquads as Map<string, Types.ObjectId[]> | undefined;
+  if (aiSquads) {
+    const ids = aiSquads.get(clubName);
+    if (ids && ids.length > 0) {
+      return Player.find({ _id: { $in: ids } }).sort({ 'stats.overall': -1 }).limit(20);
+    }
+  }
   return Player.find({ club: clubName }).sort({ 'stats.overall': -1 }).limit(20);
 }
 
@@ -78,19 +89,22 @@ async function getAISquad(clubName: string): Promise<IPlayer[]> {
  * Otherwise auto-selects the best XI from the full squad.
  */
 function getUserMatchPlayers(session: any): IPlayer[] {
-  const squad = session.squad as IPlayer[];
+  const squad = session.squad as unknown as IPlayer[];
   const xi = session.startingXI as { slotId: string; label: string; positionGroup: string; playerId: any }[];
 
   if (xi && xi.length === 11) {
-    // All 11 slots must have a valid populated player
     const xiPlayers = xi
       .map((slot) => slot.playerId)
       .filter((p): p is IPlayer => p && typeof p === 'object' && 'stats' in p);
     if (xiPlayers.length === 11) return xiPlayers;
   }
 
-  // Fall back to auto best-XI from full squad
-  return selectBestXI(squad);
+  return selectBestXI(squad, session.formation || '4-4-2');
+}
+
+/** Returns the full squad (bench included) for substitution simulation */
+function getUserFullSquad(session: any): IPlayer[] {
+  return session.squad as unknown as IPlayer[];
 }
 
 /** POST /api/sessions/:sessionId/simulate — Simulate one gameweek */
@@ -120,21 +134,28 @@ export async function simulateGameweek(req: Request, res: Response): Promise<voi
   }
 
   const userMatchPlayers = getUserMatchPlayers(session);
+  const userFullSquad = getUserFullSquad(session);
+  const userFormation = (session as any).formation || '4-4-2';
   const matchResults = [];
 
   for (const fixture of gwFixtures) {
     const isUserHome = fixture.homeTeam === session.userTeam;
     const isUserAway = fixture.awayTeam === session.userTeam;
 
-    const homePlayers = isUserHome ? userMatchPlayers : await getAISquad(fixture.homeTeam);
-    const awayPlayers = isUserAway ? userMatchPlayers : await getAISquad(fixture.awayTeam);
+    const homePlayers = isUserHome ? userMatchPlayers : await getAISquad(fixture.homeTeam, session);
+    const awayPlayers = isUserAway ? userMatchPlayers : await getAISquad(fixture.awayTeam, session);
+    const homeFullSquad = isUserHome ? userFullSquad : homePlayers;
+    const awayFullSquad = isUserAway ? userFullSquad : awayPlayers;
 
-    const sim = simulateMatch(fixture.homeTeam, fixture.awayTeam, homePlayers, awayPlayers);
+    const sim = simulateMatch(
+      fixture.homeTeam, fixture.awayTeam,
+      homeFullSquad, awayFullSquad,
+      isUserHome ? userFormation : '4-4-2',
+      isUserAway ? userFormation : '4-4-2'
+    );
 
-    // Store result in fixture
     fixture.result = sim.result;
 
-    // Update standings
     applyResult(
       session.standings as StandingEntry[],
       fixture.homeTeam,
@@ -143,27 +164,27 @@ export async function simulateGameweek(req: Request, res: Response): Promise<voi
       sim.awayScore
     );
 
-    // Update player season stats
-    const allPlayers = [...homePlayers, ...awayPlayers];
     const statsArr = session.playerSeasonStats as PlayerSeasonStats[];
 
+    // Appearances: everyone who played (starting XI + subs who came on)
+    sim.homeAppearances.forEach((p) => { getOrCreateStatEntry(statsArr, p, fixture.homeTeam).appearances++; });
+    sim.awayAppearances.forEach((p) => { getOrCreateStatEntry(statsArr, p, fixture.awayTeam).appearances++; });
+
+    // Goals & assists
     sim.result.goals.forEach((goal) => {
-      const scorer = allPlayers.find((p) => p.apiId === goal.scorerApiId);
-      if (scorer) {
-        const entry = getOrCreateStatEntry(statsArr, scorer, goal.team);
-        entry.goals++;
-      }
+      const allAppearances = [...sim.homeAppearances, ...sim.awayAppearances];
+      const scorer = allAppearances.find((p) => p.apiId === goal.scorerApiId);
+      if (scorer) getOrCreateStatEntry(statsArr, scorer, goal.team).goals++;
       if (goal.assisterApiId) {
-        const assister = allPlayers.find((p) => p.apiId === goal.assisterApiId);
-        if (assister) {
-          const entry = getOrCreateStatEntry(statsArr, assister, goal.team);
-          entry.assists++;
-        }
+        const assister = allAppearances.find((p) => p.apiId === goal.assisterApiId);
+        if (assister) getOrCreateStatEntry(statsArr, assister, goal.team).assists++;
       }
     });
 
+    // Cards
     sim.result.cards.forEach((card) => {
-      const player = allPlayers.find((p) => p.apiId === card.playerApiId);
+      const allAppearances = [...sim.homeAppearances, ...sim.awayAppearances];
+      const player = allAppearances.find((p) => p.apiId === card.playerApiId);
       if (player) {
         const entry = getOrCreateStatEntry(statsArr, player, card.team);
         if (card.type === 'yellow') entry.yellowCards++;
@@ -171,18 +192,18 @@ export async function simulateGameweek(req: Request, res: Response): Promise<voi
       }
     });
 
-    // Clean sheets: GKs on the side that conceded 0
+    // Clean sheets: GK + DEF who started (in the playing XI, not full squad)
+    const homeXI = sim.homeAppearances.slice(0, 11);
+    const awayXI = sim.awayAppearances.slice(0, 11);
     if (sim.homeScore === 0) {
-      awayPlayers.filter((p) => p.positionGroup === 'GK').forEach((gk) => {
-        const entry = getOrCreateStatEntry(statsArr, gk, fixture.awayTeam);
-        entry.cleanSheets++;
-      });
+      awayXI
+        .filter((p) => p.positionGroup === 'GK' || p.positionGroup === 'DEF')
+        .forEach((p) => { getOrCreateStatEntry(statsArr, p, fixture.awayTeam).cleanSheets++; });
     }
     if (sim.awayScore === 0) {
-      homePlayers.filter((p) => p.positionGroup === 'GK').forEach((gk) => {
-        const entry = getOrCreateStatEntry(statsArr, gk, fixture.homeTeam);
-        entry.cleanSheets++;
-      });
+      homeXI
+        .filter((p) => p.positionGroup === 'GK' || p.positionGroup === 'DEF')
+        .forEach((p) => { getOrCreateStatEntry(statsArr, p, fixture.homeTeam).cleanSheets++; });
     }
 
     matchResults.push({
@@ -191,19 +212,18 @@ export async function simulateGameweek(req: Request, res: Response): Promise<voi
       homeScore: sim.homeScore,
       awayScore: sim.awayScore,
       goals: sim.result.goals,
+      substitutions: sim.result.substitutions,
     });
   }
 
   session.currentGameweek = nextGW;
 
-  // After GW19, open January transfer window
   if (nextGW === 19) {
     session.phase = 'january_transfer';
   } else if (nextGW === 38) {
     session.phase = 'season_end';
   }
 
-  // Sort standings by points (then GD, then GF)
   (session.standings as StandingEntry[]).sort(
     (a, b) => b.points - a.points || b.gd - a.gd || b.gf - a.gf
   );
@@ -246,6 +266,8 @@ export async function simulateAll(req: Request, res: Response): Promise<void> {
   }
 
   const userMatchPlayers = getUserMatchPlayers(session);
+  const userFullSquad = getUserFullSquad(session);
+  const userFormation = (session as any).formation || '4-4-2';
 
   for (let gw = startGW; gw <= endGW; gw++) {
     const gwFixtures = session.fixtures.filter((f) => f.gameweek === gw && !f.result);
@@ -254,10 +276,17 @@ export async function simulateAll(req: Request, res: Response): Promise<void> {
       const isUserHome = fixture.homeTeam === session.userTeam;
       const isUserAway = fixture.awayTeam === session.userTeam;
 
-      const homePlayers = isUserHome ? userMatchPlayers : await getAISquad(fixture.homeTeam);
-      const awayPlayers = isUserAway ? userMatchPlayers : await getAISquad(fixture.awayTeam);
+      const homePlayers = isUserHome ? userMatchPlayers : await getAISquad(fixture.homeTeam, session);
+      const awayPlayers = isUserAway ? userMatchPlayers : await getAISquad(fixture.awayTeam, session);
+      const homeFullSquad = isUserHome ? userFullSquad : homePlayers;
+      const awayFullSquad = isUserAway ? userFullSquad : awayPlayers;
 
-      const sim = simulateMatch(fixture.homeTeam, fixture.awayTeam, homePlayers, awayPlayers);
+      const sim = simulateMatch(
+        fixture.homeTeam, fixture.awayTeam,
+        homeFullSquad, awayFullSquad,
+        isUserHome ? userFormation : '4-4-2',
+        isUserAway ? userFormation : '4-4-2'
+      );
       fixture.result = sim.result;
 
       applyResult(
@@ -268,20 +297,24 @@ export async function simulateAll(req: Request, res: Response): Promise<void> {
         sim.awayScore
       );
 
-      const allPlayers = [...homePlayers, ...awayPlayers];
       const statsArr = session.playerSeasonStats as PlayerSeasonStats[];
 
+      sim.homeAppearances.forEach((p) => { getOrCreateStatEntry(statsArr, p, fixture.homeTeam).appearances++; });
+      sim.awayAppearances.forEach((p) => { getOrCreateStatEntry(statsArr, p, fixture.awayTeam).appearances++; });
+
       sim.result.goals.forEach((goal) => {
-        const scorer = allPlayers.find((p) => p.apiId === goal.scorerApiId);
+        const allAppearances = [...sim.homeAppearances, ...sim.awayAppearances];
+        const scorer = allAppearances.find((p) => p.apiId === goal.scorerApiId);
         if (scorer) getOrCreateStatEntry(statsArr, scorer, goal.team).goals++;
         if (goal.assisterApiId) {
-          const assister = allPlayers.find((p) => p.apiId === goal.assisterApiId);
+          const assister = allAppearances.find((p) => p.apiId === goal.assisterApiId);
           if (assister) getOrCreateStatEntry(statsArr, assister, goal.team).assists++;
         }
       });
 
       sim.result.cards.forEach((card) => {
-        const p = allPlayers.find((pl) => pl.apiId === card.playerApiId);
+        const allAppearances = [...sim.homeAppearances, ...sim.awayAppearances];
+        const p = allAppearances.find((pl) => pl.apiId === card.playerApiId);
         if (p) {
           const entry = getOrCreateStatEntry(statsArr, p, card.team);
           if (card.type === 'yellow') entry.yellowCards++;
@@ -289,15 +322,17 @@ export async function simulateAll(req: Request, res: Response): Promise<void> {
         }
       });
 
+      const homeXI = sim.homeAppearances.slice(0, 11);
+      const awayXI = sim.awayAppearances.slice(0, 11);
       if (sim.homeScore === 0) {
-        awayPlayers.filter((p) => p.positionGroup === 'GK').forEach((gk) => {
-          getOrCreateStatEntry(session.playerSeasonStats as PlayerSeasonStats[], gk, fixture.awayTeam).cleanSheets++;
-        });
+        awayXI
+          .filter((p) => p.positionGroup === 'GK' || p.positionGroup === 'DEF')
+          .forEach((p) => { getOrCreateStatEntry(statsArr, p, fixture.awayTeam).cleanSheets++; });
       }
       if (sim.awayScore === 0) {
-        homePlayers.filter((p) => p.positionGroup === 'GK').forEach((gk) => {
-          getOrCreateStatEntry(session.playerSeasonStats as PlayerSeasonStats[], gk, fixture.homeTeam).cleanSheets++;
-        });
+        homeXI
+          .filter((p) => p.positionGroup === 'GK' || p.positionGroup === 'DEF')
+          .forEach((p) => { getOrCreateStatEntry(statsArr, p, fixture.homeTeam).cleanSheets++; });
       }
     }
 
@@ -305,7 +340,6 @@ export async function simulateAll(req: Request, res: Response): Promise<void> {
 
     if (gw === 19 && session.phase === 'season') {
       session.phase = 'january_transfer';
-      // Persist and stop — January window must be handled before continuing
       break;
     }
   }
@@ -379,4 +413,62 @@ export async function getSeasonStats(req: Request, res: Response): Promise<void>
     userTeam: session.userTeam,
     currentGameweek: session.currentGameweek,
   });
+}
+
+/** GET /api/sessions/:sessionId/teams — Returns all 20 PL teams with strength scores */
+export async function getTeamsSquads(req: Request, res: Response): Promise<void> {
+  const session = await GameSession.findOne({ sessionId: req.params.sessionId })
+    .populate('squad')
+    .select('userTeam userTeamApiId aiSquads squad formation phase');
+
+  if (!session) {
+    res.status(404).json({ error: 'Session not found or expired' });
+    return;
+  }
+
+  const plClubs = await Club.find({ isPL: true }).lean();
+
+  const teams = await Promise.all(
+    plClubs.map(async (club) => {
+      const isUserClub = club.name === session.userTeam;
+
+      let squad: IPlayer[];
+      if (isUserClub) {
+        squad = session.squad as unknown as IPlayer[];
+      } else {
+        squad = await getAISquad(club.name, session);
+      }
+
+      const formation = isUserClub ? ((session as any).formation || '4-4-2') : '4-4-2';
+      const strengthScore = calculateTeamStrengthScore(squad, formation);
+      const bestXI = selectBestXI(squad, formation).map((p) => ({
+        name: p.name,
+        shortName: p.shortName,
+        position: p.position,
+        positionGroup: p.positionGroup,
+        overall: p.stats.overall,
+        photoUrl: p.photoUrl,
+      }));
+
+      return {
+        clubName: club.name,
+        clubApiId: club.apiId,
+        logoUrl: (club as any).logoUrl ?? '',
+        isUserClub,
+        promoted: (club as any).promoted ?? false,
+        strengthScore,
+        bestXI,
+        squadSize: squad.length,
+      };
+    })
+  );
+
+  // Sort: user club first, then by overall descending
+  teams.sort((a, b) => {
+    if (a.isUserClub) return -1;
+    if (b.isUserClub) return 1;
+    return b.strengthScore.overall - a.strengthScore.overall;
+  });
+
+  res.json({ teams, userTeam: session.userTeam, phase: session.phase });
 }

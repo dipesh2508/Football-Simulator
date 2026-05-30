@@ -388,9 +388,14 @@ export default function LineupPage() {
                       <span className="text-lg opacity-60">+</span>
                     )}
                   </div>
-                  {/* Slot label + overall */}
+                  {/* Slot label + overall + ALT badge */}
                   <div className="flex flex-col items-center">
-                    <span className="text-[9px] font-bold text-white/90 leading-none">{slot.label}</span>
+                    <div className="flex items-center gap-0.5">
+                      <span className="text-[9px] font-bold text-white/90 leading-none">{slot.label}</span>
+                      {slot.isAltPosition && (
+                        <span className="text-[8px] bg-orange-500/80 text-white font-bold px-0.5 rounded leading-none ml-0.5">ALT</span>
+                      )}
+                    </div>
                     {slot.player && (
                       <span className="text-[9px] text-white/70 leading-none">{slot.player.stats.overall}</span>
                     )}

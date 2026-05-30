@@ -76,7 +76,7 @@ export async function buyPlayer(req: Request, res: Response): Promise<void> {
   (session.squad as Types.ObjectId[]).push(new Types.ObjectId(playerId));
   session.transfers.push({
     playerId: playerId.toString(),
-    playerName: player.name,
+    playerName: player.shortName,
     fee: player.marketValue,
     window,
     type: 'buy',
@@ -136,7 +136,7 @@ export async function sellPlayer(req: Request, res: Response): Promise<void> {
   session.budget = Math.round((session.budget + sellFee) * 10) / 10;
   session.transfers.push({
     playerId: playerId.toString(),
-    playerName: player.name,
+    playerName: player.shortName,
     fee: sellFee,
     window,
     type: 'sell',
@@ -172,7 +172,27 @@ export async function confirmTransferWindow(req: Request, res: Response): Promis
     Player.find({ _id: { $nin: session.squad as Types.ObjectId[] } }),
   ]);
 
-  const { summaries } = await runAITransfers(session, plClubs, allClubs, allPlayers);
+  const { summaries, clubBought } = await runAITransfers(session, plClubs, allClubs, allPlayers);
+
+  // Build session-aware AI squads: original top-20 DB squad + transfer purchases
+  const userTeam = session.userTeam;
+  for (const club of plClubs) {
+    if (club.name === userTeam) continue;
+
+    // Fetch the club's original top-20 DB squad (their "inherited" players)
+    const originalSquad = await Player.find({ club: club.name })
+      .sort({ 'stats.overall': -1 })
+      .limit(20)
+      .select('_id');
+
+    const originalIds = originalSquad.map((p) => p._id as Types.ObjectId);
+    const boughtIds = clubBought.get(club.name) ?? [];
+    const allIds = [...originalIds, ...boughtIds];
+
+    (session.aiSquads as Map<string, Types.ObjectId[]>).set(club.name, allIds);
+  }
+
+  session.markModified('aiSquads');
 
   // Advance phase — both windows lead back into the season
   session.phase = 'season';

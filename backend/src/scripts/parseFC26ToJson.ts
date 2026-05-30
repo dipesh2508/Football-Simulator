@@ -112,6 +112,24 @@ function mapPosition(rawPositions: string): Position {
   return POSITION_MAP[first] ?? 'CM'; // fallback: treat unknowns as CM
 }
 
+/**
+ * Returns all unique alt positions from the CSV player_positions field,
+ * excluding the primary position.
+ */
+function mapAltPositions(rawPositions: string, primary: Position): Position[] {
+  const tokens = rawPositions.split(',').map((t) => t.trim().toUpperCase());
+  const seen = new Set<Position>([primary]);
+  const alts: Position[] = [];
+  for (const token of tokens) {
+    const pos = POSITION_MAP[token];
+    if (pos && !seen.has(pos)) {
+      seen.add(pos);
+      alts.push(pos);
+    }
+  }
+  return alts;
+}
+
 function toPositionGroup(pos: Position): PositionGroup {
   if (pos === 'GK') return 'GK';
   if (pos === 'CB' || pos === 'LB' || pos === 'RB') return 'DEF';
@@ -267,6 +285,7 @@ async function main() {
     // ── Field mapping ──────────────────────────────────────────────────────────
     const longName = row.long_name ?? row.short_name ?? 'Unknown';
     const position = mapPosition(row.player_positions ?? 'CM');
+    const altPositions = mapAltPositions(row.player_positions ?? '', position);
     const positionGroup = toPositionGroup(position);
     const league = clubToLeague.get(normalizedClub)!;
     const { affinityClubs, antiAffinityClubs } = getAffinity(longName);
@@ -288,6 +307,7 @@ async function main() {
       league,
       position,
       positionGroup,
+      altPositions,
       age,
       marketValue: Math.max(marketValue, 0.1),
       wage,

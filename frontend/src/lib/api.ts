@@ -75,6 +75,9 @@ export const api = {
   getStats: (sessionId: string) =>
     request<StatsResponse>(`/sessions/${sessionId}/stats`),
 
+  getTeamsSquads: (sessionId: string) =>
+    request<TeamsSquadsResponse>(`/sessions/${sessionId}/teams`),
+
   // ── Lineup ────────────────────────────────────────────────────────────────────────────
 
   getLineup: (sessionId: string) =>
@@ -141,6 +144,7 @@ export interface PlayerSeasonStats {
   playerApiId: number;
   playerName: string;
   club: string;
+  appearances: number;
   goals: number;
   assists: number;
   cleanSheets: number;
@@ -154,6 +158,48 @@ export interface GoalEvent {
   assisterName?: string;
   assisterApiId?: number;
   team: string;
+  minute: number;
+  isPenalty?: boolean;
+}
+
+export interface SubstitutionEvent {
+  playerOffName: string;
+  playerOffApiId: number;
+  playerOnName: string;
+  playerOnApiId: number;
+  team: string;
+  minute: number;
+}
+
+export interface TeamStrengthScore {
+  attack: number;
+  midfield: number;
+  defence: number;
+  overall: number;
+}
+
+export interface TeamSquadInfo {
+  clubName: string;
+  clubApiId: number;
+  logoUrl: string;
+  isUserClub: boolean;
+  promoted?: boolean;
+  strengthScore: TeamStrengthScore;
+  bestXI: {
+    name: string;
+    shortName: string;
+    position: string;
+    positionGroup: string;
+    overall: number;
+    photoUrl?: string;
+  }[];
+  squadSize: number;
+}
+
+export interface TeamsSquadsResponse {
+  teams: TeamSquadInfo[];
+  userTeam: string;
+  phase: string;
 }
 
 export interface SessionData {
@@ -222,6 +268,7 @@ export interface SimulateResponse {
     homeScore: number;
     awayScore: number;
     goals: GoalEvent[];
+    substitutions: SubstitutionEvent[];
   }[];
   userStanding: number;
 }
@@ -254,6 +301,7 @@ export interface SeedClub {
   reputation: number;
   lastSeasonFinish?: number;
   budgetRange?: [number, number];
+  promoted?: boolean;
 }
 
 // ── Lineup types ────────────────────────────────────────────────────────────────────────────
@@ -265,6 +313,7 @@ export interface LineupSlotData {
   label: string;
   positionGroup: 'GK' | 'DEF' | 'MID' | 'FWD';
   player: Player | null;
+  isAltPosition?: boolean;
 }
 
 export interface LineupResponse {

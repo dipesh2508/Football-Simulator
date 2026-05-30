@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useGame } from '@/context/GameContext';
 import { api, StandingEntry } from '@/lib/api';
 import { StandingsTable } from '@/components/StandingsTable';
+import { getClubLogoWithFallback } from '@/lib/logos';
 
 export default function StandingsPage() {
   const router = useRouter();
@@ -30,7 +31,7 @@ export default function StandingsPage() {
       {loading ? (
         <div className="text-center py-12 text-zinc-400">Loading standings…</div>
       ) : (
-        <StandingsTable standings={standings} userTeam={userTeam ?? ''} />
+        <StandingsTable standings={standings} userTeam={userTeam ?? ''} getLogoFn={getClubLogoWithFallback} />
       )}
     </div>
   );

@@ -13,6 +13,7 @@ export interface IClub extends Document {
   badgeUrl: string;
   lastSeasonFinish?: number; // 1-20, PL clubs only
   budgetRange?: [number, number]; // [min, max] millions GBP, PL clubs only
+  promoted?: boolean; // True if promoted from Championship to PL this season
 }
 
 const ClubSchema = new Schema<IClub>(
@@ -28,6 +29,7 @@ const ClubSchema = new Schema<IClub>(
     badgeUrl: { type: String, default: '' },
     lastSeasonFinish: { type: Number },
     budgetRange: { type: [Number] },
+    promoted: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

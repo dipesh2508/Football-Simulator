@@ -61,6 +61,7 @@ export interface PlayerSeedEntry {
   league: string;
   position: Position;
   positionGroup: PositionGroup;
+  altPositions?: Position[];
   age: number;
   marketValue: number;
   wage?: number; // weekly GBP (populated by parseFC26ToJson)

@@ -1,13 +1,15 @@
 'use client';
 
+import Image from 'next/image';
 import type { StandingEntry } from '@/lib/api';
 
 interface Props {
   standings: StandingEntry[];
   userTeam: string;
+  getLogoFn?: (clubName: string) => string;
 }
 
-export function StandingsTable({ standings, userTeam }: Props) {
+export function StandingsTable({ standings, userTeam, getLogoFn }: Props) {
   return (
     <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-700">
       <table className="w-full text-sm">
@@ -37,12 +39,33 @@ export function StandingsTable({ standings, userTeam }: Props) {
               >
                 <td className="px-3 py-2 text-zinc-500">{idx + 1}</td>
                 <td className="px-3 py-2 text-zinc-900 dark:text-white">
-                  {entry.team}
-                  {isUser && (
-                    <span className="ml-2 rounded bg-blue-600 px-1.5 py-0.5 text-[10px] font-bold text-white uppercase">
-                      You
+                  <div className="flex items-center gap-2">
+                    {getLogoFn && (() => {
+                      const logo = getLogoFn(entry.team);
+                      return logo ? (
+                        <Image
+                          src={logo}
+                          alt={entry.team}
+                          width={20}
+                          height={20}
+                          className="w-5 h-5 object-contain shrink-0"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                        />
+                      ) : (
+                        <div className="w-5 h-5 rounded-full bg-gray-700 text-[10px] text-gray-400 flex items-center justify-center shrink-0 font-semibold">
+                          {entry.team.slice(0, 1)}
+                        </div>
+                      );
+                    })()}
+                    <span>
+                      {entry.team}
+                      {isUser && (
+                        <span className="ml-2 rounded bg-blue-600 px-1.5 py-0.5 text-[10px] font-bold text-white uppercase">
+                          You
+                        </span>
+                      )}
                     </span>
-                  )}
+                  </div>
                 </td>
                 <td className="px-3 py-2 text-center text-zinc-600 dark:text-zinc-400">{entry.played}</td>
                 <td className="px-3 py-2 text-center text-zinc-600 dark:text-zinc-400">{entry.won}</td>
