@@ -145,12 +145,18 @@ export interface PlayerSeasonStats {
   playerApiId: number;
   playerName: string;
   club: string;
+  clubApiId?: number;
   appearances: number;
   goals: number;
   assists: number;
   cleanSheets: number;
   yellowCards: number;
   redCards: number;
+}
+
+export interface ClubSeasonStats {
+  club: string;
+  players: PlayerSeasonStats[];
 }
 
 export interface GoalEvent {
@@ -294,6 +300,8 @@ export interface StatsResponse {
   topScorers: PlayerSeasonStats[];
   topAssists: PlayerSeasonStats[];
   topCleanSheets: PlayerSeasonStats[];
+  playerStats: PlayerSeasonStats[];
+  clubStats: ClubSeasonStats[];
   userTeam: string;
   currentGameweek: number;
 }

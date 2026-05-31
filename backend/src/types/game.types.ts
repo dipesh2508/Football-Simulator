@@ -93,12 +93,22 @@ export interface SubstitutionEvent {
   minute: number;
 }
 
+export interface MatchAppearance {
+  playerApiId: number;
+  playerName: string;
+  club: string;
+  position: Position;
+  positionGroup: PositionGroup;
+}
+
 export interface MatchResult {
   homeScore: number;
   awayScore: number;
   goals: GoalEvent[];
   cards: CardEvent[];
   substitutions: SubstitutionEvent[];
+  homeAppearances: MatchAppearance[];
+  awayAppearances: MatchAppearance[];
 }
 
 export interface Fixture {
@@ -113,6 +123,7 @@ export interface PlayerSeasonStats {
   playerApiId: number;
   playerName: string;
   club: string;
+  clubApiId?: number;
   appearances: number;
   goals: number;
   assists: number;

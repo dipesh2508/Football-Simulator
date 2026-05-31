@@ -4,7 +4,7 @@ import { GameSession } from '@/models/gameSession.model';
 import { Player, IPlayer } from '@/models/player.model';
 import { Club } from '@/models/club.model';
 import { simulateMatch, selectBestXI, selectBestXIWithSlots, detectBestFormation, calculateTeamStrengthScore } from '@/utils/matchSimulation.util';
-import { StandingEntry, PlayerSeasonStats, PositionGroup } from '@/types/game.types';
+import { StandingEntry, PlayerSeasonStats, PositionGroup, Fixture, MatchAppearance } from '@/types/game.types';
 
 /** Update standings after a match result */
 function applyResult(
@@ -49,13 +49,14 @@ function getOrCreateStatEntry(
   player: IPlayer,
   club: string
 ): PlayerSeasonStats {
-  let entry = statsArr.find((s) => s.playerApiId === player.apiId);
+  let entry = statsArr.find((s) => s.playerApiId === player.apiId && s.club === club);
   if (!entry) {
     entry = {
       playerId: (player._id as Types.ObjectId).toString(),
       playerApiId: player.apiId,
       playerName: player.shortName,
       club,
+      clubApiId: player.clubApiId,
       appearances: 0,
       goals: 0,
       assists: 0,
@@ -66,6 +67,201 @@ function getOrCreateStatEntry(
     statsArr.push(entry);
   }
   return entry;
+}
+
+function cloneBlankStat(player: IPlayer): PlayerSeasonStats {
+  return {
+    playerId: (player._id as Types.ObjectId).toString(),
+    playerApiId: player.apiId,
+    playerName: player.shortName,
+    club: player.club,
+    clubApiId: player.clubApiId,
+    appearances: 0,
+    goals: 0,
+    assists: 0,
+    cleanSheets: 0,
+    yellowCards: 0,
+    redCards: 0,
+  };
+}
+
+function createStatFromAppearance(appearance: MatchAppearance): PlayerSeasonStats | null {
+  if (typeof appearance.playerApiId !== 'number' || Number.isNaN(appearance.playerApiId)) {
+    return null;
+  }
+
+  return {
+    playerId: appearance.playerApiId.toString(),
+    playerApiId: appearance.playerApiId,
+    playerName: appearance.playerName,
+    club: appearance.club,
+    clubApiId: undefined,
+    appearances: 0,
+    goals: 0,
+    assists: 0,
+    cleanSheets: 0,
+    yellowCards: 0,
+    redCards: 0,
+  };
+}
+
+function rebuildSeasonStatsFromFixtures(fixtures: Fixture[]): PlayerSeasonStats[] {
+  const statsArr: PlayerSeasonStats[] = [];
+
+  const increment = (appearance: MatchAppearance, club: string): PlayerSeasonStats => {
+    if (typeof appearance.playerApiId !== 'number' || Number.isNaN(appearance.playerApiId)) {
+      return {
+        playerId: '',
+        playerApiId: -1,
+        playerName: appearance.playerName ?? 'Unknown',
+        club,
+        clubApiId: undefined,
+        appearances: 0,
+        goals: 0,
+        assists: 0,
+        cleanSheets: 0,
+        yellowCards: 0,
+        redCards: 0,
+      };
+    }
+
+    let entry = statsArr.find((s) => s.playerApiId === appearance.playerApiId && s.club === club);
+    if (!entry) {
+      const created = createStatFromAppearance({ ...appearance, club });
+      if (!created) {
+        return {
+          playerId: '',
+          playerApiId: -1,
+          playerName: appearance.playerName ?? 'Unknown',
+          club,
+          clubApiId: undefined,
+          appearances: 0,
+          goals: 0,
+          assists: 0,
+          cleanSheets: 0,
+          yellowCards: 0,
+          redCards: 0,
+        };
+      }
+
+      entry = created;
+      statsArr.push(entry);
+    }
+    return entry;
+  };
+
+  for (const fixture of fixtures) {
+    const result = fixture.result;
+    if (!result) continue;
+
+    const homeAppearances = result.homeAppearances ?? [];
+    const awayAppearances = result.awayAppearances ?? [];
+    const allAppearances = [...homeAppearances, ...awayAppearances];
+
+    homeAppearances.forEach((appearance) => {
+      increment(appearance, fixture.homeTeam).appearances++;
+    });
+    awayAppearances.forEach((appearance) => {
+      increment(appearance, fixture.awayTeam).appearances++;
+    });
+
+    result.goals.forEach((goal) => {
+      const scorer = allAppearances.find((appearance) => appearance.playerApiId === goal.scorerApiId);
+      if (scorer) increment(scorer, goal.team).goals++;
+
+      if (goal.assisterApiId) {
+        const assister = allAppearances.find((appearance) => appearance.playerApiId === goal.assisterApiId);
+        if (assister) increment(assister, goal.team).assists++;
+      }
+    });
+
+    result.cards.forEach((card) => {
+      const player = allAppearances.find((appearance) => appearance.playerApiId === card.playerApiId);
+      if (!player) return;
+
+      const entry = increment(player, card.team);
+      if (card.type === 'yellow') entry.yellowCards++;
+      else entry.redCards++;
+    });
+
+    const homeXI = homeAppearances.slice(0, 11);
+    const awayXI = awayAppearances.slice(0, 11);
+    if (result.homeScore === 0) {
+      awayXI
+        .filter((appearance) => appearance.positionGroup === 'GK' || appearance.positionGroup === 'DEF')
+        .forEach((appearance) => {
+          increment(appearance, fixture.awayTeam).cleanSheets++;
+        });
+    }
+    if (result.awayScore === 0) {
+      homeXI
+        .filter((appearance) => appearance.positionGroup === 'GK' || appearance.positionGroup === 'DEF')
+        .forEach((appearance) => {
+          increment(appearance, fixture.homeTeam).cleanSheets++;
+        });
+    }
+  }
+
+  return statsArr;
+}
+
+function hasCompleteAppearanceHistory(fixtures: Fixture[]): boolean {
+  return fixtures
+    .filter((fixture) => Boolean(fixture.result))
+    .every((fixture) => {
+      const result = fixture.result;
+      return Boolean(result?.homeAppearances?.length) && Boolean(result?.awayAppearances?.length);
+    });
+}
+
+function aggregatePlayerTotals(stats: PlayerSeasonStats[]): PlayerSeasonStats[] {
+  const totals = new Map<number, PlayerSeasonStats>();
+
+  for (const stat of stats) {
+    const existing = totals.get(stat.playerApiId);
+    if (!existing) {
+      totals.set(stat.playerApiId, { ...stat });
+      continue;
+    }
+
+    const shouldReplaceIdentity = stat.appearances >= existing.appearances;
+    existing.appearances += stat.appearances;
+    existing.goals += stat.goals;
+    existing.assists += stat.assists;
+    existing.cleanSheets += stat.cleanSheets;
+    existing.yellowCards += stat.yellowCards;
+    existing.redCards += stat.redCards;
+
+    if (shouldReplaceIdentity) {
+      existing.playerId = stat.playerId;
+      existing.playerName = stat.playerName;
+      existing.club = stat.club;
+      existing.clubApiId = stat.clubApiId;
+    }
+  }
+
+  return [...totals.values()].sort(
+    (a, b) => b.appearances - a.appearances || b.goals - a.goals || b.assists - a.assists || a.playerName.localeCompare(b.playerName)
+  );
+}
+
+function groupStatsByClub(stats: PlayerSeasonStats[]): { club: string; players: PlayerSeasonStats[] }[] {
+  const clubMap = new Map<string, PlayerSeasonStats[]>();
+
+  for (const stat of stats) {
+    const clubStats = clubMap.get(stat.club) ?? [];
+    clubStats.push(stat);
+    clubMap.set(stat.club, clubStats);
+  }
+
+  return [...clubMap.entries()]
+    .map(([club, players]) => ({
+      club,
+      players: players.sort(
+        (a, b) => b.appearances - a.appearances || b.goals - a.goals || b.assists - a.assists || a.playerName.localeCompare(b.playerName)
+      ),
+    }))
+    .sort((a, b) => a.club.localeCompare(b.club));
 }
 
 /**
@@ -427,7 +623,8 @@ export async function getStandings(req: Request, res: Response): Promise<void> {
 /** GET /api/sessions/:sessionId/stats */
 export async function getSeasonStats(req: Request, res: Response): Promise<void> {
   const session = await GameSession.findOne({ sessionId: req.params.sessionId })
-    .select('playerSeasonStats userTeam currentGameweek')
+    .select('playerSeasonStats userTeam currentGameweek squad userTeamApiId')
+    .populate('squad')
     .lean();
 
   if (!session) {
@@ -436,18 +633,66 @@ export async function getSeasonStats(req: Request, res: Response): Promise<void>
   }
 
   const stats = session.playerSeasonStats as PlayerSeasonStats[];
+  const playerTotals = aggregatePlayerTotals(stats);
+  const statsByPlayerApiId = new Map<number, PlayerSeasonStats>();
 
-  const topScorers = [...stats].sort((a, b) => b.goals - a.goals).slice(0, 10);
-  const topAssists = [...stats].sort((a, b) => b.assists - a.assists).slice(0, 10);
-  const topCleanSheets = [...stats]
+  for (const stat of playerTotals) {
+    statsByPlayerApiId.set(stat.playerApiId, stat);
+  }
+
+  const squadPlayers = (session.squad as unknown as IPlayer[]) ?? [];
+  for (const player of squadPlayers) {
+    if (!statsByPlayerApiId.has(player.apiId)) {
+      const blankStat = cloneBlankStat(player);
+      statsByPlayerApiId.set(player.apiId, blankStat);
+      playerTotals.push(blankStat);
+    }
+  }
+
+  const topScorers = [...playerTotals].sort((a, b) => b.goals - a.goals || b.appearances - a.appearances).slice(0, 10);
+  const topAssists = [...playerTotals].sort((a, b) => b.assists - a.assists || b.appearances - a.appearances).slice(0, 10);
+  const topCleanSheets = [...playerTotals]
     .filter((s) => s.cleanSheets > 0)
     .sort((a, b) => b.cleanSheets - a.cleanSheets)
     .slice(0, 5);
 
+  const allPlayers = await Player.find({ league: 'Premier League' })
+    .select('_id apiId shortName club clubApiId')
+    .lean();
+  const plClubNames = new Set(allPlayers.map((player) => player.club));
+  plClubNames.add(session.userTeam ?? '');
+
+  const squadPlayerIds = new Set(squadPlayers.map((player) => player.apiId));
+  const visiblePlayerStats: PlayerSeasonStats[] = [];
+
+  for (const stat of playerTotals) {
+    if (plClubNames.has(stat.club) && !squadPlayerIds.has(stat.playerApiId)) {
+      visiblePlayerStats.push(stat);
+    }
+  }
+
+  for (const player of squadPlayers) {
+    const seeded = statsByPlayerApiId.get(player.apiId) ?? cloneBlankStat(player);
+    visiblePlayerStats.push({
+      ...seeded,
+      club: session.userTeam,
+      clubApiId: session.userTeamApiId ?? seeded.clubApiId,
+    });
+  }
+
+  const clubStats = groupStatsByClub(visiblePlayerStats).filter((entry) => plClubNames.has(entry.club));
+
+  const visibleTotals = visiblePlayerStats.filter((stat) => plClubNames.has(stat.club) || squadPlayerIds.has(stat.playerApiId));
+
   res.json({
-    topScorers,
-    topAssists,
-    topCleanSheets,
+    topScorers: [...visibleTotals].sort((a, b) => b.goals - a.goals || b.appearances - a.appearances).slice(0, 10),
+    topAssists: [...visibleTotals].sort((a, b) => b.assists - a.assists || b.appearances - a.appearances).slice(0, 10),
+    topCleanSheets: [...visibleTotals]
+      .filter((s) => s.cleanSheets > 0)
+      .sort((a, b) => b.cleanSheets - a.cleanSheets)
+      .slice(0, 5),
+    playerStats: visibleTotals,
+    clubStats,
     userTeam: session.userTeam,
     currentGameweek: session.currentGameweek,
   });

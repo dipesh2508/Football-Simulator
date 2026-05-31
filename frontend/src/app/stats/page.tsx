@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useGame } from '@/context/GameContext';
 import { api, StatsResponse } from '@/lib/api';
 import { StatTable } from '@/components/StatTable';
+import { TeamStatsAccordion } from '@/components/TeamStatsAccordion';
 
 export default function StatsPage() {
   const router = useRouter();
@@ -26,28 +27,31 @@ export default function StatsPage() {
       {loading || !data ? (
         <div className="text-center py-12 text-zinc-400">Loading stats…</div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          <StatTable
-            title="Top Scorers"
-            players={data.topScorers}
-            statKey="goals"
-            statLabel="Goals"
-            userTeam={userTeam ?? ''}
-          />
-          <StatTable
-            title="Top Assists"
-            players={data.topAssists}
-            statKey="assists"
-            statLabel="Assists"
-            userTeam={userTeam ?? ''}
-          />
-          <StatTable
-            title="Most Clean Sheets"
-            players={data.topCleanSheets}
-            statKey="cleanSheets"
-            statLabel="CS"
-            userTeam={userTeam ?? ''}
-          />
+        <div className="space-y-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <StatTable
+              title="Top Scorers"
+              players={data.topScorers}
+              statKey="goals"
+              statLabel="Goals"
+              userTeam={userTeam ?? ''}
+            />
+            <StatTable
+              title="Top Assists"
+              players={data.topAssists}
+              statKey="assists"
+              statLabel="Assists"
+              userTeam={userTeam ?? ''}
+            />
+            <StatTable
+              title="Most Clean Sheets"
+              players={data.topCleanSheets}
+              statKey="cleanSheets"
+              statLabel="CS"
+              userTeam={userTeam ?? ''}
+            />
+          </div>
+          <TeamStatsAccordion clubs={data.clubStats} userTeam={userTeam ?? ''} />
         </div>
       )}
     </div>

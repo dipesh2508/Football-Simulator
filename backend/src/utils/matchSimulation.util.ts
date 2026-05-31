@@ -509,7 +509,27 @@ export function simulateMatch(
   return {
     homeScore,
     awayScore,
-    result: { homeScore, awayScore, goals, cards, substitutions },
+    result: {
+      homeScore,
+      awayScore,
+      goals,
+      cards,
+      substitutions,
+      homeAppearances: homeAppearances.map((p) => ({
+        playerApiId: p.apiId,
+        playerName: p.shortName,
+        club: homeTeamName,
+        position: p.position,
+        positionGroup: p.positionGroup,
+      })),
+      awayAppearances: awayAppearances.map((p) => ({
+        playerApiId: p.apiId,
+        playerName: p.shortName,
+        club: awayTeamName,
+        position: p.position,
+        positionGroup: p.positionGroup,
+      })),
+    },
     homeAppearances,
     awayAppearances,
   };

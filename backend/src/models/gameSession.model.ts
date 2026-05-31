@@ -6,6 +6,7 @@ import {
   GoalEvent,
   CardEvent,
   SubstitutionEvent,
+  MatchAppearance,
   PlayerSeasonStats,
   TransferRecord,
   StandingEntry,
@@ -64,6 +65,17 @@ const SubstitutionEventSchema = new Schema<SubstitutionEvent>(
   { _id: false }
 );
 
+const MatchAppearanceSchema = new Schema<MatchAppearance>(
+  {
+    playerApiId: Number,
+    playerName: String,
+    club: String,
+    position: String,
+    positionGroup: { type: String, enum: ['GK', 'DEF', 'MID', 'FWD'] },
+  },
+  { _id: false }
+);
+
 const MatchResultSchema = new Schema<MatchResult>(
   {
     homeScore: Number,
@@ -71,6 +83,8 @@ const MatchResultSchema = new Schema<MatchResult>(
     goals: [GoalEventSchema],
     cards: [CardEventSchema],
     substitutions: [SubstitutionEventSchema],
+    homeAppearances: [MatchAppearanceSchema],
+    awayAppearances: [MatchAppearanceSchema],
   },
   { _id: false }
 );
@@ -107,6 +121,7 @@ const PlayerSeasonStatsSchema = new Schema<PlayerSeasonStats>(
     playerApiId: Number,
     playerName: String,
     club: String,
+    clubApiId: { type: Number, default: 0 },
     appearances: { type: Number, default: 0 },
     goals: { type: Number, default: 0 },
     assists: { type: Number, default: 0 },

@@ -7,6 +7,7 @@ import { api, StandingEntry, StatsResponse } from '@/lib/api';
 import { getClubLogoWithFallback } from '@/lib/logos';
 import { StandingsTable } from '@/components/StandingsTable';
 import { StatTable } from '@/components/StatTable';
+import { TeamStatsAccordion } from '@/components/TeamStatsAccordion';
 
 export default function EndPage() {
   const router = useRouter();
@@ -64,9 +65,12 @@ export default function EndPage() {
 
           {/* Stats */}
           {stats && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <StatTable title="Top Scorers" players={stats.topScorers} statKey="goals" statLabel="Goals" userTeam={userTeam ?? ''} />
-              <StatTable title="Top Assists" players={stats.topAssists} statKey="assists" statLabel="Assists" userTeam={userTeam ?? ''} />
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <StatTable title="Top Scorers" players={stats.topScorers} statKey="goals" statLabel="Goals" userTeam={userTeam ?? ''} />
+                <StatTable title="Top Assists" players={stats.topAssists} statKey="assists" statLabel="Assists" userTeam={userTeam ?? ''} />
+              </div>
+              <TeamStatsAccordion clubs={stats.clubStats} userTeam={userTeam ?? ''} />
             </div>
           )}
 

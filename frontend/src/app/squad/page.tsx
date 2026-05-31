@@ -13,7 +13,7 @@ const POSITION_ORDER = ['GK', 'DEF', 'MID', 'FWD'] as const;
 
 function StatPill({ label, value }: { label: string; value: number }) {
   return (
-    <div className="flex flex-col items-center min-w-[2rem]">
+    <div className="flex flex-col items-center min-w-8">
       <span className="text-xs font-bold text-zinc-900 dark:text-white">{value}</span>
       <span className="text-[10px] text-zinc-400 uppercase leading-none">{label}</span>
     </div>
@@ -40,7 +40,7 @@ export default function SquadPage() {
       fetches.push(
         api.getStats(sessionId).then((res) => {
           const map = new Map<number, PlayerSeasonStats>();
-          [...res.topScorers, ...res.topAssists, ...res.topCleanSheets].forEach((s) => {
+          res.playerStats.forEach((s) => {
             map.set(s.playerApiId, s);
           });
           setStatsMap(map);
