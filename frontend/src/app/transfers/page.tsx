@@ -189,11 +189,27 @@ export default function TransfersPage() {
                 className="rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
               >
                 <option value="">All Leagues</option>
+                {/* Top 5 Divisions */}
                 <option value="Premier League">Premier League</option>
                 <option value="La Liga">La Liga</option>
                 <option value="Serie A">Serie A</option>
                 <option value="Bundesliga">Bundesliga</option>
                 <option value="Ligue 1">Ligue 1</option>
+                {/* Second Divisions */}
+                <option value="EFL Championship">EFL Championship</option>
+                <option value="La Liga 2">La Liga 2</option>
+                <option value="Serie B">Serie B</option>
+                <option value="2. Bundesliga">2. Bundesliga</option>
+                <option value="Ligue 2">Ligue 2</option>
+                {/* Other Major Leagues */}
+                <option value="Eredivisie">Eredivisie</option>
+                <option value="Primeira Liga">Primeira Liga</option>
+                <option value="Saudi Pro League">Saudi Pro League</option>
+                <option value="MLS">MLS</option>
+                <option value="Super Lig">Super Lig</option>
+                <option value="Ekstraklasa">Ekstraklasa</option>
+                <option value="Jupiler Pro League">Jupiler Pro League</option>
+                <option value="Austrian Bundesliga">Austrian Bundesliga</option>
               </select>
             </div>
 

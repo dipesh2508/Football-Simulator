@@ -15,12 +15,23 @@ export type PositionGroup = 'GK' | 'DEF' | 'MID' | 'FWD';
 
 export type League =
   | 'Premier League'
+  | 'EFL Championship'
   | 'La Liga'
+  | 'La Liga 2'
   | 'Bundesliga'
+  | '2. Bundesliga'
   | 'Serie A'
+  | 'Serie B'
   | 'Ligue 1'
+  | 'Ligue 2'
   | 'Eredivisie'
-  | 'Primeira Liga';
+  | 'Primeira Liga'
+  | 'Saudi Pro League'
+  | 'MLS'
+  | 'Super Lig'
+  | 'Ekstraklasa'
+  | 'Jupiler Pro League'
+  | 'Austrian Bundesliga';
 
 export type GamePhase =
   | 'team_selection'

@@ -1,7 +1,8 @@
 /**
  * parseFC26ToJson.ts
  *
- * Parses FC26_20250921.csv and writes players from our 56 clubs to players.seed.json.
+ * Parses FC26_20250921.csv and writes players from major leagues to players.seed.json.
+ * Major leagues include: Top 5 divisions + their second tiers + Saudi Arabia + MLS + others.
  * This replaces the api-football fetch pipeline entirely — no API key or rate limits needed.
  *
  * - Uses FC26 player_id as apiId (replaces api-sports IDs)
@@ -62,11 +63,14 @@ const FC26_CLUB_NAME_MAP: Record<string, string> = {
   'Fortuna Düsseldorf': 'Fortuna Dusseldorf',  // 2. Bundesliga in FC26
   '1. FC Nürnberg': '1. FC Nurnberg',           // 2. Bundesliga in FC26
   'SpVgg Greuther Fürth': 'Greuther Furth',     // 2. Bundesliga in FC26
-  // Serie A
+  // Serie A & B
   'Inter': 'Inter Milan',
   'Roma': 'AS Roma',
   'Hellas Verona FC': 'Hellas Verona',
-  // Ligue 1
+  'US Lecce': 'Lecce',
+  'Empoli FC': 'Empoli',
+  'US Salernitana': 'Salernitana',
+  // Ligue 1 & 2
   'Olympique de Marseille': 'Olympique Marseille',
   'Stade Rennais FC': 'Stade Rennais',
   'Lille OSC': 'LOSC Lille',
@@ -84,6 +88,74 @@ const FC26_CLUB_NAME_MAP: Record<string, string> = {
   'SL Benfica': 'Benfica',
   'FC Porto': 'Porto',
   'Sporting Clube de Braga': 'SC Braga',
+  
+  // Saudi Pro League
+  'Al-Hilal': 'Al Hilal',
+  'Al Hilal SFC': 'Al Hilal',
+  'Al-Nassr': 'Al Nassr',
+  'Al Nassr FC': 'Al Nassr',
+  'Al-Ittihad': 'Al Ittihad',
+  'Al Ittihad Club': 'Al Ittihad',
+  'Al-Shabab': 'Al Shabab',
+  'Al Shabab FC': 'Al Shabab',
+  'Al-Fayha': 'Al Fayha',
+  'Al Fayha Club': 'Al Fayha',
+  'Al Taawoun': 'Al Taawoun',
+  'Al Taawoun FC': 'Al Taawoun',
+  'Al-Qadsiah': 'Al Qadsiah',
+  'Al Qadsiah FC': 'Al Qadsiah',
+  'Al Raed': 'Al Raed',
+  'Al Raed Club': 'Al Raed',
+  
+  // MLS
+  'LA Galaxy': 'LA Galaxy',
+  'New York City FC': 'NYCFC',
+  'LAFC': 'Los Angeles FC',
+  'Inter Miami CF': 'Inter Miami',
+  'FC Dallas': 'Dallas',
+  'Seattle Sounders': 'Seattle Sounders',
+  'New York Red Bulls': 'New York RB',
+  'Manchester City': 'Manchester City',  // MCFC in MLS context
+};
+
+// Extended league mappings for clubs not in seed data
+const FC26_CLUB_LEAGUE_MAP: Record<string, League> = {
+  // La Liga 2
+  'Granada': 'La Liga 2',
+  'Cadiz': 'La Liga 2',
+  'Levante': 'La Liga 2',
+  // 2. Bundesliga
+  'Fortuna Dusseldorf': '2. Bundesliga',
+  '1. FC Nurnberg': '2. Bundesliga',
+  'Greuther Furth': '2. Bundesliga',
+  'Schalke': '2. Bundesliga',
+  // Serie B
+  'Lecce': 'Serie B',
+  'Empoli': 'Serie B',
+  'Salernitana': 'Serie B',
+  'Reggina': 'Serie B',
+  // Ligue 2
+  'Saint-Etienne': 'Ligue 2',
+  'Clermont Foot': 'Ligue 2',
+  'Troyes': 'Ligue 2',
+  'Metz': 'Ligue 2',
+  // Saudi Pro League
+  'Al Hilal': 'Saudi Pro League',
+  'Al Nassr': 'Saudi Pro League',
+  'Al Ittihad': 'Saudi Pro League',
+  'Al Shabab': 'Saudi Pro League',
+  'Al Fayha': 'Saudi Pro League',
+  'Al Taawoun': 'Saudi Pro League',
+  'Al Qadsiah': 'Saudi Pro League',
+  'Al Raed': 'Saudi Pro League',
+  // MLS
+  'LA Galaxy': 'MLS',
+  'NYCFC': 'MLS',
+  'Los Angeles FC': 'MLS',
+  'Inter Miami': 'MLS',
+  'Dallas': 'MLS',
+  'Seattle Sounders': 'MLS',
+  'New York RB': 'MLS',
 };
 
 function normalizeClubName(name: string): string {
@@ -141,12 +213,34 @@ function toPositionGroup(pos: Position): PositionGroup {
 
 // normalised club name → League (from clubs.seed.json — authoritative source)
 const clubToLeague = new Map<string, League>();
-const allowedClubs = new Set<string>();
 
 for (const club of seedData.clubs) {
-  allowedClubs.add(club.name);
   clubToLeague.set(club.name, club.league as League);
 }
+
+// Major leagues to include: top 5 divisions + second divisions + Saudi Arabia + MLS
+const MAJOR_LEAGUES = new Set<string>([
+  'Premier League',
+  'EFL Championship',
+  'La Liga',
+  'La Liga 2',
+  'Bundesliga',
+  '2. Bundesliga',
+  'Serie A',
+  'Serie B',
+  'Ligue 1',
+  'Ligue 2',
+  'Eredivisie',
+  'Primeira Liga',
+  'Saudi Pro League',
+  'MLS',
+  'Super Lig',         // Turkey
+  'Super Lig Pro',     // Turkey alternate
+  'Süper Lig',         // Turkey (accented)
+  'Ekstraklasa',       // Poland
+  'Jupiler Pro League', // Belgium
+  'Austrian Bundesliga',
+]);
 
 // Affinity: list of { nameWords, affinityClubs, antiAffinityClubs }
 // Matched via all-words substring check against FC26 long_name
@@ -229,8 +323,7 @@ async function main() {
   console.log('\n⚽ FC26 → players.seed.json');
   console.log(`📂 Input : ${CSV_FILE}`);
   console.log(`📄 Output: ${OUTPUT_FILE}`);
-  console.log(`⚙️  Min overall : ${MIN_OVERALL}`);
-  console.log(`🏟️  Clubs tracked: ${allowedClubs.size}\n`);
+  console.log(`⚙️  Min overall : ${MIN_OVERALL}\n`);
 
   if (!fs.existsSync(CSV_FILE)) {
     console.error(`❌ CSV not found: ${CSV_FILE}`);
@@ -246,8 +339,8 @@ async function main() {
   let isFirstLine = true;
   const players: PlayerSeedEntry[] = [];
   const clubCounts = new Map<string, number>();
+  const leagueCounts = new Map<string, number>();
   let rowCount = 0;
-  let skippedClub = 0;
   let skippedOverall = 0;
 
   for await (const line of rl) {
@@ -268,14 +361,7 @@ async function main() {
       row[h] = cols[i] ?? '';
     });
 
-    // ── Club filter ────────────────────────────────────────────────────────────
-    const normalizedClub = normalizeClubName(row.club_name ?? '');
-    if (!allowedClubs.has(normalizedClub)) {
-      skippedClub++;
-      continue;
-    }
-
-    // ── Overall filter ─────────────────────────────────────────────────────────
+    // ── Club & Overall filter ─────────────────────────────────────────────────
     const overall = safeNum(row.overall);
     if (overall < MIN_OVERALL) {
       skippedOverall++;
@@ -283,11 +369,29 @@ async function main() {
     }
 
     // ── Field mapping ──────────────────────────────────────────────────────────
+    const normalizedClub = normalizeClubName(row.club_name ?? '');
+    
+    // Determine league: first check seed data, then FC26 mapping, then skip
+    let league: League | undefined = clubToLeague.get(normalizedClub);
+    if (!league) {
+      league = FC26_CLUB_LEAGUE_MAP[normalizedClub] as League | undefined;
+    }
+    if (!league) {
+      // League not recognized; skip this player
+      skippedOverall++;
+      continue;
+    }
+    
+    // Check if league is in major leagues whitelist
+    if (!MAJOR_LEAGUES.has(league)) {
+      skippedOverall++;
+      continue;
+    }
+
     const longName = row.long_name ?? row.short_name ?? 'Unknown';
     const position = mapPosition(row.player_positions ?? 'CM');
     const altPositions = mapAltPositions(row.player_positions ?? '', position);
     const positionGroup = toPositionGroup(position);
-    const league = clubToLeague.get(normalizedClub)!;
     const { affinityClubs, antiAffinityClubs } = getAffinity(longName);
 
     const valueEur = safeNum(row.value_eur);
@@ -329,6 +433,7 @@ async function main() {
 
     players.push(entry);
     clubCounts.set(normalizedClub, (clubCounts.get(normalizedClub) ?? 0) + 1);
+    leagueCounts.set(league, (leagueCounts.get(league) ?? 0) + 1);
   }
 
   // ── Write output ─────────────────────────────────────────────────────────────
@@ -337,21 +442,19 @@ async function main() {
   // ── Summary ───────────────────────────────────────────────────────────────────
   console.log('📊 Parse Summary');
   console.log(`   Total CSV rows processed : ${rowCount}`);
-  console.log(`   Skipped (not our clubs)  : ${skippedClub}`);
-  console.log(`   Skipped (overall < ${MIN_OVERALL})  : ${skippedOverall}`);
+  console.log(`   Skipped (overall < ${MIN_OVERALL}) : ${skippedOverall}`);
   console.log(`   Players written          : ${players.length}`);
 
-  console.log('\n🏟️  Players per club:');
-  const sorted = [...clubCounts.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  for (const [clubName, count] of sorted) {
-    const warn = count < 15 ? ' ⚠️  (low — check name mapping)' : '';
-    console.log(`   ${clubName.padEnd(35)} ${String(count).padStart(3)}${warn}`);
+  console.log('\n⚽ Players per league:');
+  const sortedLeagues = [...leagueCounts.entries()].sort((a, b) => b[1] - a[1]);
+  for (const [leagueName, count] of sortedLeagues) {
+    console.log(`   ${leagueName.padEnd(35)} ${String(count).padStart(4)}`);
   }
 
-  const missing = [...allowedClubs].filter((c) => !clubCounts.has(c));
-  if (missing.length > 0) {
-    console.log('\n⚠️  Clubs with 0 players (likely name mismatch — add to FC26_CLUB_NAME_MAP):');
-    missing.forEach((c) => console.log(`   - "${c}"`));
+  console.log('\n🏟️  Players per club:');
+  const sortedClubs = [...clubCounts.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  for (const [clubName, count] of sortedClubs) {
+    console.log(`   ${clubName.padEnd(35)} ${String(count).padStart(3)}`);
   }
 
   console.log(`\n✅ Written to ${OUTPUT_FILE}`);
