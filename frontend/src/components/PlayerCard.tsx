@@ -51,7 +51,14 @@ export function PlayerCard({ player, actionLabel, onAction, actionDisabled, show
         )}
         <div className="flex-1 min-w-0">
           <p className="font-semibold text-zinc-900 dark:text-white truncate">{player.shortName}</p>
-          <p className="text-xs text-zinc-500 truncate">{player.position} · {player.club}</p>
+          <div className="flex items-center gap-1 flex-wrap">
+            <p className="text-xs text-zinc-500 truncate">{player.position} · {player.club}</p>
+            {player.altPositions && player.altPositions.length > 0 && (
+              <span className="text-[9px] font-bold bg-orange-100 text-orange-700 border border-orange-300 px-1 py-0.5 rounded dark:bg-orange-900/30 dark:text-orange-400 whitespace-nowrap shrink-0">
+                {player.altPositions.join(' · ')}
+              </span>
+            )}
+          </div>
         </div>
         <span className={`rounded px-2 py-0.5 text-sm font-bold ${overallColor(player.stats.overall)}`}>
           {player.stats.overall}

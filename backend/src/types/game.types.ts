@@ -132,7 +132,13 @@ export type FormationName =
   | '4-2-3-1'
   | '3-5-2'
   | '5-3-2'
-  | '4-5-1';
+  | '4-5-1'
+  | '4-3-2-1'
+  | '4-4-1-1'
+  | '3-4-3'
+  | '4-1-4-1'
+  | '4-3-3 hold'
+  | '4-2-3-1 wide';
 
 export interface FormationSlotDef {
   slotId: string;   // e.g. "gk", "cb1", "lst"
@@ -240,6 +246,90 @@ export const FORMATIONS: Record<FormationName, FormationSlotDef[]> = {
     { slotId: 'cm2', label: 'CM',  positionGroup: 'MID' },
     { slotId: 'rm',  label: 'RM',  positionGroup: 'MID' },
     { slotId: 'st',  label: 'ST',  positionGroup: 'FWD' },
+  ],
+  // Christmas Tree: 4 DEF · 3 CM · 2 CAM · 1 ST
+  '4-3-2-1': [
+    { slotId: 'gk',  label: 'GK',  positionGroup: 'GK'  },
+    { slotId: 'lb',  label: 'LB',  positionGroup: 'DEF' },
+    { slotId: 'cb1', label: 'CB',  positionGroup: 'DEF' },
+    { slotId: 'cb2', label: 'CB',  positionGroup: 'DEF' },
+    { slotId: 'rb',  label: 'RB',  positionGroup: 'DEF' },
+    { slotId: 'cm1', label: 'CM',  positionGroup: 'MID' },
+    { slotId: 'cm2', label: 'CM',  positionGroup: 'MID' },
+    { slotId: 'cm3', label: 'CM',  positionGroup: 'MID' },
+    { slotId: 'lam', label: 'LAM', positionGroup: 'MID' },
+    { slotId: 'ram', label: 'RAM', positionGroup: 'MID' },
+    { slotId: 'st',  label: 'ST',  positionGroup: 'FWD' },
+  ],
+  // Second striker/shadow striker behind lone ST
+  '4-4-1-1': [
+    { slotId: 'gk',  label: 'GK',  positionGroup: 'GK'  },
+    { slotId: 'lb',  label: 'LB',  positionGroup: 'DEF' },
+    { slotId: 'cb1', label: 'CB',  positionGroup: 'DEF' },
+    { slotId: 'cb2', label: 'CB',  positionGroup: 'DEF' },
+    { slotId: 'rb',  label: 'RB',  positionGroup: 'DEF' },
+    { slotId: 'lm',  label: 'LM',  positionGroup: 'MID' },
+    { slotId: 'cm1', label: 'CM',  positionGroup: 'MID' },
+    { slotId: 'cm2', label: 'CM',  positionGroup: 'MID' },
+    { slotId: 'rm',  label: 'RM',  positionGroup: 'MID' },
+    { slotId: 'ss',  label: 'SS',  positionGroup: 'MID' },
+    { slotId: 'st',  label: 'ST',  positionGroup: 'FWD' },
+  ],
+  // Three at the back with attacking wide midfielders
+  '3-4-3': [
+    { slotId: 'gk',  label: 'GK',  positionGroup: 'GK'  },
+    { slotId: 'cb1', label: 'CB',  positionGroup: 'DEF' },
+    { slotId: 'cb2', label: 'CB',  positionGroup: 'DEF' },
+    { slotId: 'cb3', label: 'CB',  positionGroup: 'DEF' },
+    { slotId: 'lm',  label: 'LM',  positionGroup: 'MID' },
+    { slotId: 'cm1', label: 'CM',  positionGroup: 'MID' },
+    { slotId: 'cm2', label: 'CM',  positionGroup: 'MID' },
+    { slotId: 'rm',  label: 'RM',  positionGroup: 'MID' },
+    { slotId: 'lw',  label: 'LW',  positionGroup: 'FWD' },
+    { slotId: 'st',  label: 'ST',  positionGroup: 'FWD' },
+    { slotId: 'rw',  label: 'RW',  positionGroup: 'FWD' },
+  ],
+  // Single pivot CDM with four attack-minded mids
+  '4-1-4-1': [
+    { slotId: 'gk',  label: 'GK',  positionGroup: 'GK'  },
+    { slotId: 'lb',  label: 'LB',  positionGroup: 'DEF' },
+    { slotId: 'cb1', label: 'CB',  positionGroup: 'DEF' },
+    { slotId: 'cb2', label: 'CB',  positionGroup: 'DEF' },
+    { slotId: 'rb',  label: 'RB',  positionGroup: 'DEF' },
+    { slotId: 'cdm', label: 'CDM', positionGroup: 'MID' },
+    { slotId: 'lm',  label: 'LM',  positionGroup: 'MID' },
+    { slotId: 'cm1', label: 'CM',  positionGroup: 'MID' },
+    { slotId: 'cm2', label: 'CM',  positionGroup: 'MID' },
+    { slotId: 'rm',  label: 'RM',  positionGroup: 'MID' },
+    { slotId: 'st',  label: 'ST',  positionGroup: 'FWD' },
+  ],
+  // Holding 4-3-3: CDM + 2 CMs shields the defence while LW/ST/RW attack
+  '4-3-3 hold': [
+    { slotId: 'gk',  label: 'GK',  positionGroup: 'GK'  },
+    { slotId: 'lb',  label: 'LB',  positionGroup: 'DEF' },
+    { slotId: 'cb1', label: 'CB',  positionGroup: 'DEF' },
+    { slotId: 'cb2', label: 'CB',  positionGroup: 'DEF' },
+    { slotId: 'rb',  label: 'RB',  positionGroup: 'DEF' },
+    { slotId: 'cdm', label: 'CDM', positionGroup: 'MID' },
+    { slotId: 'cm1', label: 'CM',  positionGroup: 'MID' },
+    { slotId: 'cm2', label: 'CM',  positionGroup: 'MID' },
+    { slotId: 'lw',  label: 'LW',  positionGroup: 'FWD' },
+    { slotId: 'st',  label: 'ST',  positionGroup: 'FWD' },
+    { slotId: 'rw',  label: 'RW',  positionGroup: 'FWD' },
+  ],
+  // Wide 4-2-3-1: true wingers (FWD group) flank a central CAM behind the ST
+  '4-2-3-1 wide': [
+    { slotId: 'gk',   label: 'GK',  positionGroup: 'GK'  },
+    { slotId: 'lb',   label: 'LB',  positionGroup: 'DEF' },
+    { slotId: 'cb1',  label: 'CB',  positionGroup: 'DEF' },
+    { slotId: 'cb2',  label: 'CB',  positionGroup: 'DEF' },
+    { slotId: 'rb',   label: 'RB',  positionGroup: 'DEF' },
+    { slotId: 'cdm1', label: 'CDM', positionGroup: 'MID' },
+    { slotId: 'cdm2', label: 'CDM', positionGroup: 'MID' },
+    { slotId: 'cam',  label: 'CAM', positionGroup: 'MID' },
+    { slotId: 'lw',   label: 'LW',  positionGroup: 'FWD' },
+    { slotId: 'st',   label: 'ST',  positionGroup: 'FWD' },
+    { slotId: 'rw',   label: 'RW',  positionGroup: 'FWD' },
   ],
 };
 

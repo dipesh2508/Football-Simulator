@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useGame } from '@/context/GameContext';
 import { api, StandingEntry, StatsResponse } from '@/lib/api';
+import { getClubLogoWithFallback } from '@/lib/logos';
 import { StandingsTable } from '@/components/StandingsTable';
 import { StatTable } from '@/components/StatTable';
 
@@ -58,7 +59,7 @@ export default function EndPage() {
           {/* Final table */}
           <div className="space-y-2">
             <h2 className="text-lg font-bold text-zinc-800 dark:text-zinc-200">Final Premier League Table</h2>
-            <StandingsTable standings={standings} userTeam={userTeam ?? ''} />
+            <StandingsTable standings={standings} userTeam={userTeam ?? ''} getLogoFn={getClubLogoWithFallback} />
           </div>
 
           {/* Stats */}

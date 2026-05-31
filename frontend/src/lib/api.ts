@@ -118,6 +118,7 @@ export interface Player {
   league: string;
   position: string;
   positionGroup: 'GK' | 'DEF' | 'MID' | 'FWD';
+  altPositions?: string[];
   age: number;
   marketValue: number;
   stats: PlayerStats;
@@ -307,7 +308,19 @@ export interface SeedClub {
 
 // ── Lineup types ────────────────────────────────────────────────────────────────────────────
 
-export type FormationName = '4-4-2' | '4-3-3' | '4-2-3-1' | '3-5-2' | '5-3-2' | '4-5-1';
+export type FormationName =
+  | '4-4-2'
+  | '4-3-3'
+  | '4-2-3-1'
+  | '3-5-2'
+  | '5-3-2'
+  | '4-5-1'
+  | '4-3-2-1'
+  | '4-4-1-1'
+  | '3-4-3'
+  | '4-1-4-1'
+  | '4-3-3 hold'
+  | '4-2-3-1 wide';
 
 export interface LineupSlotData {
   slotId: string;
@@ -327,7 +340,10 @@ export interface LineupSlotSave {
   playerId: string | null;
 }
 
-export const FORMATION_NAMES: FormationName[] = ['4-4-2', '4-3-3', '4-2-3-1', '3-5-2', '5-3-2', '4-5-1'];
+export const FORMATION_NAMES: FormationName[] = [
+  '4-4-2', '4-3-3', '4-3-3 hold', '4-2-3-1', '4-2-3-1 wide',
+  '3-5-2', '5-3-2', '4-5-1', '4-3-2-1', '4-4-1-1', '3-4-3', '4-1-4-1',
+];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 

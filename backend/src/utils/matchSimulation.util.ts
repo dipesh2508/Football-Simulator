@@ -1,19 +1,19 @@
 import { IPlayer } from '@/models/player.model';
 import { MatchResult, GoalEvent, CardEvent, SubstitutionEvent, TeamStrengthScore, PositionGroup } from '@/types/game.types';
 
-const HOME_ADVANTAGE = 1.15; // 15% attack boost for home team
+const HOME_ADVANTAGE = 1.12; // 12% attack boost for home team
 
-/** Realistic expected goals baseline per team per match (PL average ≈ 1.2) */
-const BASE_EXPECTED_GOALS = 1.2;
+/** Realistic expected goals baseline per team per match (PL average ≈ 1.35) */
+const BASE_EXPECTED_GOALS = 1.35;
 
 /**
- * Subtract this baseline before computing the attack/defense ratio so quality
- * differences are amplified. A team rated 80 vs one rated 60 is now 40 vs 20
- * (2× as effective) rather than just 1.33×. Equal teams (both 72) still produce
- * exactly the same λ as without the baseline — it only spreads the outcome
- * distribution for mismatched fixtures.
+ * Subtract this baseline before computing the attack/defense ratio.
+ * A higher baseline means team quality differences are amplified more:
+ * a team rated 83-atk vs 65-def gives a ratio of (83-52)/(65-52) = 31/13 ≈ 2.4×
+ * whereas with baseline=40 the same teams give 43/25 = 1.72×.
+ * This ensures top teams win convincingly and champions reach 85-95 pts.
  */
-const STRENGTH_BASELINE = 40;
+const STRENGTH_BASELINE = 52;
 
 /** Out-of-position penalty: 12% reduction on the player's positional contribution */
 const ALT_POSITION_PENALTY = 0.88;
@@ -54,14 +54,23 @@ function topN<T>(arr: T[], n: number, scoreFn: (item: T) => number): T[] {
 }
 
 /**
- * Parses a formation string like "4-3-3" into per-group slot counts.
- * Returns { GK, DEF, MID, FWD }.
+ * Parses a formation string into per-group slot counts.
+ * Handles N-N-N (e.g. "4-3-3"), N-N-N-N (e.g. "4-2-3-1"), and variant
+ * suffixes like "4-3-3 hold" or "4-2-3-1 wide".
+ * For 4-part formations the two middle numbers are summed into MID.
  */
 function parseFormationCounts(formation: string): Record<PositionGroup, number> {
-  const parts = formation.split('-').map(Number);
-  if (parts.length === 3 && parts.every((n) => !isNaN(n))) {
-    // Standard N-N-N: DEF-MID-FWD (GK always 1)
-    return { GK: 1, DEF: parts[0], MID: parts[1], FWD: parts[2] };
+  // Strip any variant suffix (' hold', ' wide', etc.) before parsing
+  const baseName = formation.split(' ')[0];
+  const parts = baseName.split('-').map(Number);
+  if (parts.every((n) => !isNaN(n))) {
+    if (parts.length === 3) {
+      return { GK: 1, DEF: parts[0], MID: parts[1], FWD: parts[2] };
+    }
+    if (parts.length === 4) {
+      // e.g. 4-2-3-1 → MID = 2+3 = 5, FWD = 1
+      return { GK: 1, DEF: parts[0], MID: parts[1] + parts[2], FWD: parts[3] };
+    }
   }
   // Fallback to 4-4-2
   return { GK: 1, DEF: 4, MID: 4, FWD: 2 };
@@ -268,11 +277,15 @@ export function simulateMatch(
   const effAwayAtk = Math.max(awayStrength.attack - STRENGTH_BASELINE, 5);
   const effHomeDef = Math.max(homeStrength.defense - STRENGTH_BASELINE, 5);
 
-  const homeLambda = (effHomeAtk / effAwayDef) * HOME_ADVANTAGE * BASE_EXPECTED_GOALS;
-  const awayLambda = (effAwayAtk / effHomeDef) * BASE_EXPECTED_GOALS;
+  // Per-match performance factor: realistic day-to-day variance (e.g. injuries, morale)
+  const homePerf = 0.87 + Math.random() * 0.26; // 0.87–1.13
+  const awayPerf = 0.87 + Math.random() * 0.26;
 
-  const homeScore = poissonRandom(Math.max(0.3, Math.min(homeLambda, 4.0)));
-  const awayScore = poissonRandom(Math.max(0.2, Math.min(awayLambda, 3.5)));
+  const homeLambda = (effHomeAtk / effAwayDef) * HOME_ADVANTAGE * BASE_EXPECTED_GOALS * homePerf;
+  const awayLambda = (effAwayAtk / effHomeDef) * BASE_EXPECTED_GOALS * awayPerf;
+
+  const homeScore = poissonRandom(Math.max(0.25, Math.min(homeLambda, 5.5)));
+  const awayScore = poissonRandom(Math.max(0.15, Math.min(awayLambda, 4.5)));
 
   // Use actual playing XI for goal/card attribution
   const homeXI = homePlayers.length <= 11 ? homePlayers : selectBestXI(homePlayers, homeFormation);

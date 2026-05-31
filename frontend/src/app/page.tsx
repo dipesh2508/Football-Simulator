@@ -4,6 +4,9 @@ import { useRouter } from 'next/navigation';
 import { useGame, type GamePhase } from '@/context/GameContext';
 import { api } from '@/lib/api';
 import { useState } from 'react';
+import PremLogo from '@/assets/prem logo.png';
+import Image from 'next/image';
+
 
 export default function LandingPage() {
   const router = useRouter();
@@ -53,9 +56,7 @@ export default function LandingPage() {
   return (
     <div className="flex flex-col items-center justify-center min-h-[80vh] px-4 text-center">
       <div className="max-w-lg space-y-6">
-        <span className="inline-block rounded-full bg-blue-600 px-4 py-1 text-xs font-bold uppercase tracking-widest text-white">
-          Premier League
-        </span>
+        <Image src={PremLogo} alt="Premier League Logo" className='size-64 mx-auto' />
         <h1 className="text-5xl font-extrabold tracking-tight text-zinc-900 dark:text-white">
           Football<br />Simulator
         </h1>

@@ -12,6 +12,34 @@ import {
   FORMATION_NAMES,
 } from '@/lib/api';
 
+/**
+ * Maps each slot label to the player positions that are natively valid there.
+ *
+ * Primary: player.position is in this list   → shown without a badge.
+ * Alt:     player has an altPosition in this list → shown with "ALT · <pos>" badge.
+ * Note: 'LM' and 'RM' do not exist as Position types; LW/RW fill those slots natively.
+ */
+const SLOT_NATIVE_POSITIONS: Record<string, string[]> = {
+  GK:  ['GK'],
+  CB:  ['CB'],           // any defender can cover CB
+  LB:  ['LB', 'RB'],
+  RB:  ['RB', 'LB'],
+  LWB: ['LB', 'LW'],          // wing-back: fullback, or winger
+  RWB: ['RB', 'RW'],
+  CDM: ['CDM', 'CM'],                 // holding mid accepts CM
+  CM:  ['CM', 'CDM', 'CAM'],         // box-to-box mid
+  CAM: ['CAM', 'CM'],
+  LAM: ['CAM', 'LW', 'CM'],          // left attacking mid
+  RAM: ['CAM', 'RW', 'CM'],
+  LM:  ['LW'],          // wide mid — only LW (no LM Position type)
+  RM:  ['RW'],          // wide mid — only RW (no RM Position type)
+  LW:  ['LW'],
+  RW:  ['RW'],
+  SS:  ['CAM', 'ST', 'CF'],          // shadow striker
+  ST:  ['ST', 'CF'],                 // strict: wingers excluded unless they have ST/CF as alt
+  CF:  ['CF', 'ST'],
+};
+
 // ── Pitch coordinates (x%, y%) per slot per formation ────────────────────────
 // y=0 is the attacking end (top of pitch), y=100 is the goalkeeper row
 const FORMATION_COORDS: Record<FormationName, Record<string, { x: number; y: number }>> = {
@@ -51,6 +79,52 @@ const FORMATION_COORDS: Record<FormationName, Record<string, { x: number; y: num
     lb:  { x: 15, y: 70 }, cb1: { x: 37, y: 70 }, cb2: { x: 63, y: 70 }, rb: { x: 85, y: 70 },
     lm:  { x: 10, y: 50 }, cm1: { x: 28, y: 50 }, cdm: { x: 50, y: 52 }, cm2: { x: 72, y: 50 }, rm: { x: 90, y: 50 },
     st:  { x: 50, y: 14 },
+  },
+  // Christmas Tree
+  '4-3-2-1': {
+    gk:  { x: 50, y: 88 },
+    lb:  { x: 15, y: 70 }, cb1: { x: 37, y: 70 }, cb2: { x: 63, y: 70 }, rb: { x: 85, y: 70 },
+    cm1: { x: 20, y: 52 }, cm2: { x: 50, y: 52 }, cm3: { x: 80, y: 52 },
+    lam: { x: 30, y: 30 }, ram: { x: 70, y: 30 },
+    st:  { x: 50, y: 12 },
+  },
+  // Second striker / shadow striker
+  '4-4-1-1': {
+    gk:  { x: 50, y: 88 },
+    lb:  { x: 15, y: 70 }, cb1: { x: 37, y: 70 }, cb2: { x: 63, y: 70 }, rb: { x: 85, y: 70 },
+    lm:  { x: 15, y: 50 }, cm1: { x: 37, y: 50 }, cm2: { x: 63, y: 50 }, rm: { x: 85, y: 50 },
+    ss:  { x: 50, y: 30 },
+    st:  { x: 50, y: 14 },
+  },
+  // Three at the back
+  '3-4-3': {
+    gk:  { x: 50, y: 88 },
+    cb1: { x: 25, y: 70 }, cb2: { x: 50, y: 70 }, cb3: { x: 75, y: 70 },
+    lm:  { x: 12, y: 50 }, cm1: { x: 37, y: 50 }, cm2: { x: 63, y: 50 }, rm: { x: 88, y: 50 },
+    lw:  { x: 15, y: 20 }, st: { x: 50, y: 14 }, rw: { x: 85, y: 20 },
+  },
+  // Single pivot
+  '4-1-4-1': {
+    gk:  { x: 50, y: 88 },
+    lb:  { x: 15, y: 70 }, cb1: { x: 37, y: 70 }, cb2: { x: 63, y: 70 }, rb: { x: 85, y: 70 },
+    cdm: { x: 50, y: 58 },
+    lm:  { x: 12, y: 42 }, cm1: { x: 35, y: 40 }, cm2: { x: 65, y: 40 }, rm: { x: 88, y: 42 },
+    st:  { x: 50, y: 14 },
+  },
+  // Holding 4-3-3
+  '4-3-3 hold': {
+    gk:  { x: 50, y: 88 },
+    lb:  { x: 15, y: 70 }, cb1: { x: 37, y: 70 }, cb2: { x: 63, y: 70 }, rb: { x: 85, y: 70 },
+    cdm: { x: 50, y: 54 }, cm1: { x: 27, y: 50 }, cm2: { x: 73, y: 50 },
+    lw:  { x: 15, y: 18 }, st: { x: 50, y: 14 }, rw: { x: 85, y: 18 },
+  },
+  // Wide 4-2-3-1
+  '4-2-3-1 wide': {
+    gk:   { x: 50, y: 88 },
+    lb:   { x: 15, y: 72 }, cb1: { x: 37, y: 72 }, cb2: { x: 63, y: 72 }, rb: { x: 85, y: 72 },
+    cdm1: { x: 35, y: 56 }, cdm2: { x: 65, y: 56 },
+    cam:  { x: 50, y: 36 },
+    lw:   { x: 12, y: 18 }, st: { x: 50, y: 12 }, rw: { x: 88, y: 18 },
   },
 };
 
@@ -133,6 +207,84 @@ const FORMATION_SLOT_DEFS: Record<FormationName, { slotId: string; label: string
     { slotId: 'cm2', label: 'CM',  positionGroup: 'MID' },
     { slotId: 'rm',  label: 'RM',  positionGroup: 'MID' },
     { slotId: 'st',  label: 'ST',  positionGroup: 'FWD' },
+  ],
+  '4-3-2-1': [
+    { slotId: 'gk',  label: 'GK',  positionGroup: 'GK'  },
+    { slotId: 'lb',  label: 'LB',  positionGroup: 'DEF' },
+    { slotId: 'cb1', label: 'CB',  positionGroup: 'DEF' },
+    { slotId: 'cb2', label: 'CB',  positionGroup: 'DEF' },
+    { slotId: 'rb',  label: 'RB',  positionGroup: 'DEF' },
+    { slotId: 'cm1', label: 'CM',  positionGroup: 'MID' },
+    { slotId: 'cm2', label: 'CM',  positionGroup: 'MID' },
+    { slotId: 'cm3', label: 'CM',  positionGroup: 'MID' },
+    { slotId: 'lam', label: 'LAM', positionGroup: 'MID' },
+    { slotId: 'ram', label: 'RAM', positionGroup: 'MID' },
+    { slotId: 'st',  label: 'ST',  positionGroup: 'FWD' },
+  ],
+  '4-4-1-1': [
+    { slotId: 'gk',  label: 'GK',  positionGroup: 'GK'  },
+    { slotId: 'lb',  label: 'LB',  positionGroup: 'DEF' },
+    { slotId: 'cb1', label: 'CB',  positionGroup: 'DEF' },
+    { slotId: 'cb2', label: 'CB',  positionGroup: 'DEF' },
+    { slotId: 'rb',  label: 'RB',  positionGroup: 'DEF' },
+    { slotId: 'lm',  label: 'LM',  positionGroup: 'MID' },
+    { slotId: 'cm1', label: 'CM',  positionGroup: 'MID' },
+    { slotId: 'cm2', label: 'CM',  positionGroup: 'MID' },
+    { slotId: 'rm',  label: 'RM',  positionGroup: 'MID' },
+    { slotId: 'ss',  label: 'SS',  positionGroup: 'MID' },
+    { slotId: 'st',  label: 'ST',  positionGroup: 'FWD' },
+  ],
+  '3-4-3': [
+    { slotId: 'gk',  label: 'GK',  positionGroup: 'GK'  },
+    { slotId: 'cb1', label: 'CB',  positionGroup: 'DEF' },
+    { slotId: 'cb2', label: 'CB',  positionGroup: 'DEF' },
+    { slotId: 'cb3', label: 'CB',  positionGroup: 'DEF' },
+    { slotId: 'lm',  label: 'LM',  positionGroup: 'MID' },
+    { slotId: 'cm1', label: 'CM',  positionGroup: 'MID' },
+    { slotId: 'cm2', label: 'CM',  positionGroup: 'MID' },
+    { slotId: 'rm',  label: 'RM',  positionGroup: 'MID' },
+    { slotId: 'lw',  label: 'LW',  positionGroup: 'FWD' },
+    { slotId: 'st',  label: 'ST',  positionGroup: 'FWD' },
+    { slotId: 'rw',  label: 'RW',  positionGroup: 'FWD' },
+  ],
+  '4-1-4-1': [
+    { slotId: 'gk',  label: 'GK',  positionGroup: 'GK'  },
+    { slotId: 'lb',  label: 'LB',  positionGroup: 'DEF' },
+    { slotId: 'cb1', label: 'CB',  positionGroup: 'DEF' },
+    { slotId: 'cb2', label: 'CB',  positionGroup: 'DEF' },
+    { slotId: 'rb',  label: 'RB',  positionGroup: 'DEF' },
+    { slotId: 'cdm', label: 'CDM', positionGroup: 'MID' },
+    { slotId: 'lm',  label: 'LM',  positionGroup: 'MID' },
+    { slotId: 'cm1', label: 'CM',  positionGroup: 'MID' },
+    { slotId: 'cm2', label: 'CM',  positionGroup: 'MID' },
+    { slotId: 'rm',  label: 'RM',  positionGroup: 'MID' },
+    { slotId: 'st',  label: 'ST',  positionGroup: 'FWD' },
+  ],
+  '4-3-3 hold': [
+    { slotId: 'gk',  label: 'GK',  positionGroup: 'GK'  },
+    { slotId: 'lb',  label: 'LB',  positionGroup: 'DEF' },
+    { slotId: 'cb1', label: 'CB',  positionGroup: 'DEF' },
+    { slotId: 'cb2', label: 'CB',  positionGroup: 'DEF' },
+    { slotId: 'rb',  label: 'RB',  positionGroup: 'DEF' },
+    { slotId: 'cdm', label: 'CDM', positionGroup: 'MID' },
+    { slotId: 'cm1', label: 'CM',  positionGroup: 'MID' },
+    { slotId: 'cm2', label: 'CM',  positionGroup: 'MID' },
+    { slotId: 'lw',  label: 'LW',  positionGroup: 'FWD' },
+    { slotId: 'st',  label: 'ST',  positionGroup: 'FWD' },
+    { slotId: 'rw',  label: 'RW',  positionGroup: 'FWD' },
+  ],
+  '4-2-3-1 wide': [
+    { slotId: 'gk',   label: 'GK',  positionGroup: 'GK'  },
+    { slotId: 'lb',   label: 'LB',  positionGroup: 'DEF' },
+    { slotId: 'cb1',  label: 'CB',  positionGroup: 'DEF' },
+    { slotId: 'cb2',  label: 'CB',  positionGroup: 'DEF' },
+    { slotId: 'rb',   label: 'RB',  positionGroup: 'DEF' },
+    { slotId: 'cdm1', label: 'CDM', positionGroup: 'MID' },
+    { slotId: 'cdm2', label: 'CDM', positionGroup: 'MID' },
+    { slotId: 'cam',  label: 'CAM', positionGroup: 'MID' },
+    { slotId: 'lw',   label: 'LW',  positionGroup: 'FWD' },
+    { slotId: 'st',   label: 'ST',  positionGroup: 'FWD' },
+    { slotId: 'rw',   label: 'RW',  positionGroup: 'FWD' },
   ],
 };
 
@@ -245,13 +397,19 @@ export default function LineupPage() {
     const used = new Set<string>();
     const newSlots = slots.map((slot) => {
       if (slot.player) { used.add(slot.player._id); return slot; }
-      const candidates = squad
-        .filter((p) => p.positionGroup === slot.positionGroup && !used.has(p._id))
-        .sort((a, b) => scoreFn[slot.positionGroup](b) - scoreFn[slot.positionGroup](a));
-      if (candidates.length > 0) {
-        used.add(candidates[0]._id);
-        return { ...slot, player: candidates[0] };
-      }
+      const native = SLOT_NATIVE_POSITIONS[slot.label] ?? [];
+      const group  = slot.positionGroup;
+      const score  = scoreFn[group];
+      // Primary: player's position is natively valid for this slot
+      const primary = squad
+        .filter((p) => !used.has(p._id) && (native.length > 0 ? native.includes(p.position) : p.positionGroup === group))
+        .sort((a, b) => score(b) - score(a));
+      if (primary.length > 0) { used.add(primary[0]._id); return { ...slot, player: primary[0] }; }
+      // Alt: player has an alt position that is natively valid for this slot
+      const alt = squad
+        .filter((p) => !used.has(p._id) && (p.altPositions ?? []).some((ap) => native.includes(ap)))
+        .sort((a, b) => score(b) - score(a));
+      if (alt.length > 0) { used.add(alt[0]._id); return { ...slot, player: alt[0] }; }
       return slot;
     });
     setSlots(newSlots);
@@ -276,9 +434,33 @@ export default function LineupPage() {
 
   const activeSlotData = slots.find((s) => s.slotId === activeSlot);
   const assignedIds = new Set(slots.map((s) => s.player?._id).filter(Boolean));
-  const pickerPlayers = activeSlotData
-    ? squad.filter((p) => p.positionGroup === activeSlotData.positionGroup)
-    : [];
+
+  // Build picker list scoped to the slot's native positions.
+  // Primary players (position in native list) come first, alt-eligible players after.
+  const pickerPlayers: Array<{ player: Player; matchingAlts: string[] }> = (() => {
+    if (!activeSlotData) return [];
+    const native = SLOT_NATIVE_POSITIONS[activeSlotData.label] ?? [];
+    if (native.length === 0) {
+      // Fallback: positionGroup match (no per-position restriction for unknown labels)
+      return squad
+        .filter((p) => p.positionGroup === activeSlotData.positionGroup)
+        .sort((a, b) => b.stats.overall - a.stats.overall)
+        .map((player) => ({ player, matchingAlts: [] }));
+    }
+    const primary: Array<{ player: Player; matchingAlts: string[] }> = [];
+    const alt:     Array<{ player: Player; matchingAlts: string[] }> = [];
+    for (const p of squad) {
+      if (native.includes(p.position)) {
+        primary.push({ player: p, matchingAlts: [] });
+      } else {
+        const matched = (p.altPositions ?? []).filter((ap) => native.includes(ap));
+        if (matched.length > 0) alt.push({ player: p, matchingAlts: matched });
+      }
+    }
+    primary.sort((a, b) => b.player.stats.overall - a.player.stats.overall);
+    alt.sort((a, b) => b.player.stats.overall - a.player.stats.overall);
+    return [...primary, ...alt];
+  })();
 
   const coords = FORMATION_COORDS[formation] ?? {};
   const filledCount = slots.filter((s) => s.player).length;
@@ -392,7 +574,7 @@ export default function LineupPage() {
                   <div className="flex flex-col items-center">
                     <div className="flex items-center gap-0.5">
                       <span className="text-[9px] font-bold text-white/90 leading-none">{slot.label}</span>
-                      {slot.isAltPosition && (
+                      {slot.player && !(SLOT_NATIVE_POSITIONS[slot.label] ?? []).includes(slot.player.position) && (
                         <span className="text-[8px] bg-orange-500/80 text-white font-bold px-0.5 rounded leading-none ml-0.5">ALT</span>
                       )}
                     </div>
@@ -442,11 +624,12 @@ export default function LineupPage() {
 
               <div className="max-h-[60vh] overflow-y-auto space-y-1.5 pr-1">
                 {pickerPlayers.length === 0 ? (
-                  <p className="text-sm text-zinc-400">No {activeSlotData.positionGroup} players in squad</p>
+                  <p className="text-sm text-zinc-400">No eligible players in squad</p>
                 ) : (
-                  pickerPlayers.map((p) => {
+                  pickerPlayers.map(({ player: p, matchingAlts }) => {
                     const isAssigned = assignedIds.has(p._id);
                     const isCurrent = activeSlotData.player?._id === p._id;
+                    const isAlt = matchingAlts.length > 0;
                     return (
                       <button
                         key={p._id}
@@ -461,9 +644,16 @@ export default function LineupPage() {
                           }`}
                       >
                         <div>
-                          <p className="font-semibold text-zinc-800 dark:text-zinc-100 leading-tight">
-                            {p.name}
-                          </p>
+                          <div className="flex items-center gap-1.5 leading-tight flex-wrap">
+                            <p className="font-semibold text-zinc-800 dark:text-zinc-100">
+                              {p.name}
+                            </p>
+                            {isAlt && (
+                              <span className="text-[9px] font-bold bg-orange-100 text-orange-700 border border-orange-300 px-1 py-0.5 rounded dark:bg-orange-900/30 dark:text-orange-400 whitespace-nowrap">
+                                ALT · {matchingAlts.join(', ')}
+                              </span>
+                            )}
+                          </div>
                           <p className="text-xs text-zinc-500">{p.position} · {p.club}</p>
                         </div>
                         <div className="text-right shrink-0 ml-2">
