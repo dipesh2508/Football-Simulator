@@ -1,5 +1,5 @@
 import { IPlayer } from '@/models/player.model';
-import { MatchResult, GoalEvent, CardEvent, SubstitutionEvent, TeamStrengthScore, PositionGroup } from '@/types/game.types';
+import { MatchResult, GoalEvent, CardEvent, SubstitutionEvent, TeamStrengthScore, PositionGroup, FORMATIONS, FormationName, FormationSlotDef } from '@/types/game.types';
 
 const HOME_ADVANTAGE = 1.12; // 12% attack boost for home team
 
@@ -100,6 +100,48 @@ interface TaggedPlayer {
  */
 export function selectBestXI(players: IPlayer[], formation = '4-4-2'): IPlayer[] {
   return selectBestXITagged(players, formation).map((t) => t.player);
+}
+
+/**
+ * Returns the best XI from a squad, each paired with their formation slot label
+ * (e.g. "LB", "CDM", "LW"). Uses the same selection order as selectBestXI,
+ * zipped positionally with the formation's slot definitions.
+ */
+export function selectBestXIWithSlots(
+  players: IPlayer[],
+  formation = '4-4-2'
+): { player: IPlayer; slotLabel: string }[] {
+  const tagged = selectBestXITagged(players, formation);
+  const formationKey = (formation in FORMATIONS ? formation : '4-4-2') as FormationName;
+  const slots: FormationSlotDef[] = FORMATIONS[formationKey];
+  return tagged.map((t, i) => ({
+    player: t.player,
+    slotLabel: slots[i]?.label ?? t.player.positionGroup,
+  }));
+}
+
+const ALL_FORMATIONS: FormationName[] = [
+  '4-4-2', '4-3-3', '4-2-3-1', '3-5-2', '5-3-2',
+  '4-5-1', '4-3-2-1', '4-4-1-1', '3-4-3', '4-1-4-1',
+  '4-3-3 hold', '4-2-3-1 wide',
+];
+
+/**
+ * Picks the formation from the standard set that yields the highest team strength
+ * score for the given squad. Used to give each AI team a realistic formation.
+ */
+export function detectBestFormation(players: IPlayer[]): FormationName {
+  if (players.length === 0) return '4-4-2';
+  let best: FormationName = '4-4-2';
+  let bestScore = -1;
+  for (const f of ALL_FORMATIONS) {
+    const score = calculateTeamStrengthScore(players, f).overall;
+    if (score > bestScore) {
+      bestScore = score;
+      best = f;
+    }
+  }
+  return best;
 }
 
 function selectBestXITagged(players: IPlayer[], formation = '4-4-2'): TaggedPlayer[] {
@@ -254,12 +296,14 @@ export interface SimulatedMatch {
 /**
  * Simulates a single match between two teams.
  *
- * @param homeTeamName  Name of the home team
- * @param awayTeamName  Name of the away team
- * @param homePlayers   Full squad for home team (best XI auto-selected if >11)
- * @param awayPlayers   Full squad for away team (best XI auto-selected if >11)
- * @param homeFormation Formation string for home team (default 4-4-2)
- * @param awayFormation Formation string for away team (default 4-4-2)
+ * @param homeTeamName   Name of the home team
+ * @param awayTeamName   Name of the away team
+ * @param homePlayers    Starting XI if ≤11, or full squad (best XI auto-selected) if >11
+ * @param awayPlayers    Starting XI if ≤11, or full squad (best XI auto-selected) if >11
+ * @param homeFormation  Formation string for home team (default 4-4-2)
+ * @param awayFormation  Formation string for away team (default 4-4-2)
+ * @param homeFullSquad  Full squad for home bench/substitutions (optional; falls back to homePlayers)
+ * @param awayFullSquad  Full squad for away bench/substitutions (optional; falls back to awayPlayers)
  */
 export function simulateMatch(
   homeTeamName: string,
@@ -267,7 +311,9 @@ export function simulateMatch(
   homePlayers: IPlayer[],
   awayPlayers: IPlayer[],
   homeFormation = '4-4-2',
-  awayFormation = '4-4-2'
+  awayFormation = '4-4-2',
+  homeFullSquad?: IPlayer[],
+  awayFullSquad?: IPlayer[]
 ): SimulatedMatch {
   const homeStrength = teamStrength(homePlayers, homeFormation);
   const awayStrength = teamStrength(awayPlayers, awayFormation);
@@ -290,6 +336,10 @@ export function simulateMatch(
   // Use actual playing XI for goal/card attribution
   const homeXI = homePlayers.length <= 11 ? homePlayers : selectBestXI(homePlayers, homeFormation);
   const awayXI = awayPlayers.length <= 11 ? awayPlayers : selectBestXI(awayPlayers, awayFormation);
+
+  // Bench pool: full squad if supplied (user team), otherwise same as homePlayers (AI teams)
+  const homeBench = homeFullSquad ?? homePlayers;
+  const awayBench = awayFullSquad ?? awayPlayers;
 
   const goals: GoalEvent[] = [];
   const cards: CardEvent[] = [];
@@ -361,8 +411,8 @@ export function simulateMatch(
     }
   };
 
-  simulateSubstitutions(homeTeamName, homeXI, homePlayers, homeAppearances, homeSubbedOffMap);
-  simulateSubstitutions(awayTeamName, awayXI, awayPlayers, awayAppearances, awaySubbedOffMap);
+  simulateSubstitutions(homeTeamName, homeXI, homeBench, homeAppearances, homeSubbedOffMap);
+  simulateSubstitutions(awayTeamName, awayXI, awayBench, awayAppearances, awaySubbedOffMap);
 
   // ── Assign goals ──────────────────────────────────────────────────────────
   const assignGoalsForTeam = (
@@ -419,8 +469,8 @@ export function simulateMatch(
         (p) => p.apiId !== scorer.apiId && (!subbedOffMap.has(p.apiId) || subbedOffMap.get(p.apiId)! > goalMinute)
       );
       let assister: IPlayer | undefined;
-      // Penalties rarely have a credited assist (25% chance)
-      const assistChance = isPenalty ? 0.25 : 0.75;
+      // Penalties rarely have a credited assist (1% chance)
+      const assistChance = isPenalty ? 0.01 : 0.75;
       if (availableAssisters.length > 0 && Math.random() < assistChance) {
         assister = weightedPick(availableAssisters, (p) => p.stats.passing / 100);
       }

@@ -175,18 +175,36 @@ export async function confirmTransferWindow(req: Request, res: Response): Promis
   const { summaries, clubBought } = await runAITransfers(session, plClubs, allClubs, allPlayers);
 
   // Build session-aware AI squads: original top-20 DB squad + transfer purchases
+  // Players that are already claimed (user's squad + every AI purchase) must not appear
+  // in another club's original squad — this prevents the same player showing up in
+  // multiple teams.
+  const allBoughtPlayerIds = new Set<string>();
+  for (const ids of clubBought.values()) {
+    ids.forEach((id) => allBoughtPlayerIds.add(id.toString()));
+  }
+  const claimedIds: Types.ObjectId[] = [
+    ...(session.squad as Types.ObjectId[]),
+    ...[...allBoughtPlayerIds].map((id) => new Types.ObjectId(id)),
+  ];
+
   const userTeam = session.userTeam;
   for (const club of plClubs) {
     if (club.name === userTeam) continue;
 
-    // Fetch the club's original top-20 DB squad (their "inherited" players)
-    const originalSquad = await Player.find({ club: club.name })
+    const boughtIds = clubBought.get(club.name) ?? [];
+
+    // Fetch the club's original top-20 DB squad, excluding all claimed players.
+    // boughtIds are excluded here too (globally claimed), but added back below — so
+    // a club's own purchase is never double-counted.
+    const originalSquad = await Player.find({
+      club: club.name,
+      _id: { $nin: claimedIds },
+    })
       .sort({ 'stats.overall': -1 })
       .limit(20)
       .select('_id');
 
     const originalIds = originalSquad.map((p) => p._id as Types.ObjectId);
-    const boughtIds = clubBought.get(club.name) ?? [];
     const allIds = [...originalIds, ...boughtIds];
 
     (session.aiSquads as Map<string, Types.ObjectId[]>).set(club.name, allIds);

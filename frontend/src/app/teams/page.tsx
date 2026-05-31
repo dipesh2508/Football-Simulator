@@ -85,14 +85,20 @@ function TeamCard({ team }: { team: TeamSquadInfo }) {
         <StrengthBar label="DEF" value={team.strengthScore.defence} />
       </div>
 
-      {/* Best XI (expandable) */}
+      {/* Lineup (expandable) */}
       {open && (
         <div className="border-t border-gray-700 px-4 py-3">
-          <div className="text-xs text-gray-400 uppercase tracking-wider mb-2 font-semibold">Best XI</div>
+          <div className="text-xs text-gray-400 uppercase tracking-wider mb-2 font-semibold">
+            {team.isUserClub
+              ? `${team.lineupSaved ? 'Starting XI' : 'Best XI'} · ${team.formation ?? '4-4-2'}`
+              : `Best XI · ${team.formation ?? '4-4-2'}`}
+          </div>
           <div className="grid grid-cols-1 gap-1">
             {team.bestXI.map((p, i) => (
               <div key={i} className="flex items-center gap-2 text-sm">
-                <span className="w-8 text-xs text-gray-500 font-mono text-right shrink-0">{p.position}</span>
+                <span className="w-10 text-xs text-gray-500 font-mono text-right shrink-0">
+                  {p.slotLabel ?? p.position}
+                </span>
                 <span className="flex-1 text-gray-200 truncate">{p.name}</span>
                 <span className="text-yellow-400 font-bold text-xs shrink-0">{p.overall}</span>
               </div>
@@ -146,7 +152,7 @@ export default function TeamsPage() {
       <div className="max-w-5xl mx-auto px-4 py-8">
         <h1 className="text-3xl font-bold mb-1">All Teams</h1>
         <p className="text-gray-400 text-sm mb-6">
-          Premier League squads after the transfer window — click a card to see Best XI
+          Premier League squads after the transfer window — click a card to see lineup / Best XI
         </p>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

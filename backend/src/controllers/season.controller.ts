@@ -3,8 +3,8 @@ import { Types } from 'mongoose';
 import { GameSession } from '@/models/gameSession.model';
 import { Player, IPlayer } from '@/models/player.model';
 import { Club } from '@/models/club.model';
-import { simulateMatch, selectBestXI, calculateTeamStrengthScore } from '@/utils/matchSimulation.util';
-import { StandingEntry, PlayerSeasonStats } from '@/types/game.types';
+import { simulateMatch, selectBestXI, selectBestXIWithSlots, detectBestFormation, calculateTeamStrengthScore } from '@/utils/matchSimulation.util';
+import { StandingEntry, PlayerSeasonStats, PositionGroup } from '@/types/game.types';
 
 /** Update standings after a match result */
 function applyResult(
@@ -92,11 +92,37 @@ function getUserMatchPlayers(session: any): IPlayer[] {
   const squad = session.squad as unknown as IPlayer[];
   const xi = session.startingXI as { slotId: string; label: string; positionGroup: string; playerId: any }[];
 
-  if (xi && xi.length === 11) {
+  if (xi && xi.length > 0) {
     const xiPlayers = xi
       .map((slot) => slot.playerId)
       .filter((p): p is IPlayer => p && typeof p === 'object' && 'stats' in p);
+
     if (xiPlayers.length === 11) return xiPlayers;
+
+    // Partial lineup (e.g. GK not set): fill missing slots from squad by positionGroup
+    if (xiPlayers.length >= 7) {
+      const filledIds = new Set(xiPlayers.map((p) => String((p as any)._id)));
+      const available = squad.filter((p) => !filledIds.has(String((p as any)._id)));
+      const result: IPlayer[] = [...xiPlayers];
+
+      const emptySlots = xi.filter(
+        (slot) => !(slot.playerId && typeof slot.playerId === 'object' && 'stats' in slot.playerId)
+      );
+
+      for (const slot of emptySlots) {
+        const group = slot.positionGroup as PositionGroup;
+        // Prefer exact positionGroup match, then any available player
+        const best =
+          available.filter((p) => p.positionGroup === group).sort((a, b) => b.stats.overall - a.stats.overall)[0] ??
+          available.sort((a, b) => b.stats.overall - a.stats.overall)[0];
+        if (best) {
+          result.push(best);
+          available.splice(available.indexOf(best), 1);
+        }
+      }
+
+      if (result.length === 11) return result;
+    }
   }
 
   return selectBestXI(squad, session.formation || '4-4-2');
@@ -144,14 +170,20 @@ export async function simulateGameweek(req: Request, res: Response): Promise<voi
 
     const homePlayers = isUserHome ? userMatchPlayers : await getAISquad(fixture.homeTeam, session);
     const awayPlayers = isUserAway ? userMatchPlayers : await getAISquad(fixture.awayTeam, session);
-    const homeFullSquad = isUserHome ? userFullSquad : homePlayers;
-    const awayFullSquad = isUserAway ? userFullSquad : awayPlayers;
+    // Bench pool: for user team use the full squad; for AI the squad IS the bench already
+    const homeFullSquad = isUserHome ? userFullSquad : undefined;
+    const awayFullSquad = isUserAway ? userFullSquad : undefined;
+    // Formation: user picks theirs; AI uses whatever suits their squad best
+    const homeFormation = isUserHome ? userFormation : detectBestFormation(homePlayers);
+    const awayFormation = isUserAway ? userFormation : detectBestFormation(awayPlayers);
 
     const sim = simulateMatch(
       fixture.homeTeam, fixture.awayTeam,
-      homeFullSquad, awayFullSquad,
-      isUserHome ? userFormation : '4-4-2',
-      isUserAway ? userFormation : '4-4-2'
+      homePlayers, awayPlayers,
+      homeFormation,
+      awayFormation,
+      homeFullSquad,
+      awayFullSquad
     );
 
     fixture.result = sim.result;
@@ -278,14 +310,20 @@ export async function simulateAll(req: Request, res: Response): Promise<void> {
 
       const homePlayers = isUserHome ? userMatchPlayers : await getAISquad(fixture.homeTeam, session);
       const awayPlayers = isUserAway ? userMatchPlayers : await getAISquad(fixture.awayTeam, session);
-      const homeFullSquad = isUserHome ? userFullSquad : homePlayers;
-      const awayFullSquad = isUserAway ? userFullSquad : awayPlayers;
+      // Bench pool: for user team use the full squad; for AI the squad IS the bench already
+      const homeFullSquad = isUserHome ? userFullSquad : undefined;
+      const awayFullSquad = isUserAway ? userFullSquad : undefined;
+      // Formation: user picks theirs; AI uses whatever suits their squad best
+      const homeFormation = isUserHome ? userFormation : detectBestFormation(homePlayers);
+      const awayFormation = isUserAway ? userFormation : detectBestFormation(awayPlayers);
 
       const sim = simulateMatch(
         fixture.homeTeam, fixture.awayTeam,
-        homeFullSquad, awayFullSquad,
-        isUserHome ? userFormation : '4-4-2',
-        isUserAway ? userFormation : '4-4-2'
+        homePlayers, awayPlayers,
+        homeFormation,
+        awayFormation,
+        homeFullSquad,
+        awayFullSquad
       );
       fixture.result = sim.result;
 
@@ -419,7 +457,8 @@ export async function getSeasonStats(req: Request, res: Response): Promise<void>
 export async function getTeamsSquads(req: Request, res: Response): Promise<void> {
   const session = await GameSession.findOne({ sessionId: req.params.sessionId })
     .populate('squad')
-    .select('userTeam userTeamApiId aiSquads squad formation phase');
+    .populate('startingXI.playerId')
+    .select('userTeam userTeamApiId aiSquads squad formation startingXI phase');
 
   if (!session) {
     res.status(404).json({ error: 'Session not found or expired' });
@@ -439,16 +478,49 @@ export async function getTeamsSquads(req: Request, res: Response): Promise<void>
         squad = await getAISquad(club.name, session);
       }
 
-      const formation = isUserClub ? ((session as any).formation || '4-4-2') : '4-4-2';
-      const strengthScore = calculateTeamStrengthScore(squad, formation);
-      const bestXI = selectBestXI(squad, formation).map((p) => ({
-        name: p.shortName,
-        shortName: p.shortName,
-        position: p.position,
-        positionGroup: p.positionGroup,
-        overall: p.stats.overall,
-        photoUrl: p.photoUrl,
-      }));
+      const formation = isUserClub ? ((session as any).formation || '4-4-2') : detectBestFormation(squad);
+
+      // For user team: compute strength from saved XI if available; else from full squad
+      let xiPlayers: IPlayer[] | null = null;
+      if (isUserClub) {
+        const xi = (session as any).startingXI as { slotId: string; label: string; positionGroup: string; playerId: any }[];
+        if (xi && xi.length > 0) {
+          const filled = xi.filter((s) => s.playerId && typeof s.playerId === 'object' && 'stats' in s.playerId);
+          if (filled.length === 11) {
+            xiPlayers = filled.map((s) => s.playerId as IPlayer);
+          }
+        }
+      }
+
+      const strengthScore = calculateTeamStrengthScore(xiPlayers ?? squad, formation);
+
+      // Build the lineup list — for user team show saved lineup with slot labels,
+      // for AI teams show best XI with real formation slot labels
+      let lineupPlayers: { name: string; position: string; positionGroup: string; overall: number; slotLabel: string; photoUrl?: string }[];
+
+      if (isUserClub && xiPlayers) {
+        const xi = (session as any).startingXI as { slotId: string; label: string; positionGroup: string; playerId: any }[];
+        lineupPlayers = xi
+          .filter((s) => s.playerId && typeof s.playerId === 'object' && 'stats' in s.playerId)
+          .map((s) => ({
+            name: (s.playerId as IPlayer).shortName,
+            position: (s.playerId as IPlayer).position,
+            positionGroup: (s.playerId as IPlayer).positionGroup,
+            overall: (s.playerId as IPlayer).stats.overall,
+            slotLabel: s.label,
+            photoUrl: (s.playerId as IPlayer).photoUrl,
+          }));
+      } else {
+        // Use selectBestXIWithSlots so each player gets their actual formation slot label
+        lineupPlayers = selectBestXIWithSlots(squad, formation).map(({ player: p, slotLabel }) => ({
+          name: p.shortName,
+          position: p.position,
+          positionGroup: p.positionGroup,
+          overall: p.stats.overall,
+          slotLabel,
+          photoUrl: p.photoUrl,
+        }));
+      }
 
       return {
         clubName: club.name,
@@ -457,7 +529,9 @@ export async function getTeamsSquads(req: Request, res: Response): Promise<void>
         isUserClub,
         promoted: (club as any).promoted ?? false,
         strengthScore,
-        bestXI,
+        formation,
+        lineupSaved: isUserClub && !!xiPlayers,
+        bestXI: lineupPlayers,
         squadSize: squad.length,
       };
     })

@@ -186,13 +186,15 @@ export interface TeamSquadInfo {
   isUserClub: boolean;
   promoted?: boolean;
   strengthScore: TeamStrengthScore;
+  formation?: string;
+  lineupSaved?: boolean;
   bestXI: {
     name: string;
-    shortName: string;
     position: string;
     positionGroup: string;
     overall: number;
     photoUrl?: string;
+    slotLabel?: string;
   }[];
   squadSize: number;
 }
