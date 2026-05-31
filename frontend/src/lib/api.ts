@@ -236,6 +236,7 @@ export interface MarketParams {
   limit?: number;
   position?: string;
   league?: string;
+  minValue?: number;
   maxValue?: number;
   search?: string;
 }

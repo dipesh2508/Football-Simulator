@@ -63,6 +63,7 @@ export interface GoalEvent {
   assisterApiId?: number;
   team: string;
   isPenalty?: boolean;
+  minute: number;
 }
 
 export interface CardEvent {

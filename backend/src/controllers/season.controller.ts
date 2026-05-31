@@ -442,7 +442,7 @@ export async function getTeamsSquads(req: Request, res: Response): Promise<void>
       const formation = isUserClub ? ((session as any).formation || '4-4-2') : '4-4-2';
       const strengthScore = calculateTeamStrengthScore(squad, formation);
       const bestXI = selectBestXI(squad, formation).map((p) => ({
-        name: p.name,
+        name: p.shortName,
         shortName: p.shortName,
         position: p.position,
         positionGroup: p.positionGroup,

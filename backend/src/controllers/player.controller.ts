@@ -5,7 +5,7 @@ import { GameSession } from '@/models/gameSession.model';
 import { calculateLikelihood } from '@/utils/likelihood.util';
 import { Types } from 'mongoose';
 
-/** GET /api/players/market?sessionId=&page=&limit=&position=&league=&maxValue= */
+/** GET /api/players/market?sessionId=&page=&limit=&position=&league=&minValue=&maxValue=&search= */
 export async function getTransferMarket(req: Request, res: Response): Promise<void> {
   const {
     sessionId,
@@ -13,6 +13,7 @@ export async function getTransferMarket(req: Request, res: Response): Promise<vo
     limit = '20',
     position,
     league,
+    minValue,
     maxValue,
     search,
   } = req.query as Record<string, string>;
@@ -22,7 +23,7 @@ export async function getTransferMarket(req: Request, res: Response): Promise<vo
     return;
   }
 
-  const session = await GameSession.findOne({ sessionId }).select('squad userTeam').lean();
+  const session = await GameSession.findOne({ sessionId }).select('squad userTeam budget').lean();
   if (!session) {
     res.status(404).json({ error: 'Session not found or expired' });
     return;
@@ -34,7 +35,13 @@ export async function getTransferMarket(req: Request, res: Response): Promise<vo
   };
   if (position) filter.positionGroup = position;
   if (league) filter.league = league;
-  if (maxValue) filter.marketValue = { $lte: parseFloat(maxValue) };
+
+  // Price range filter
+  const priceFilter: Record<string, number> = {};
+  if (minValue) priceFilter.$gte = parseFloat(minValue);
+  if (maxValue) priceFilter.$lte = parseFloat(maxValue);
+  if (Object.keys(priceFilter).length > 0) filter.marketValue = priceFilter;
+
   if (search) filter.name = { $regex: search, $options: 'i' };
 
   const pageNum = Math.max(1, parseInt(page, 10));

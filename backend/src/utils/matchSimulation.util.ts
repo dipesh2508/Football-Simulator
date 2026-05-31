@@ -282,76 +282,23 @@ export function simulateMatch(
   const cards: CardEvent[] = [];
   const substitutions: SubstitutionEvent[] = [];
 
-  // ── Assign goals ──────────────────────────────────────────────────────────
-  const assignGoalsForTeam = (teamName: string, numGoals: number, xi: IPlayer[]) => {
-    const scoringCandidates = xi.filter((p) => p.positionGroup !== 'GK');
-    if (scoringCandidates.length === 0) return;
+  // ── Simulate substitutions first to track who gets subbed off ────────────────
+  const homeAppearances: IPlayer[] = [];
+  const awayAppearances: IPlayer[] = [];
 
-    for (let i = 0; i < numGoals; i++) {
-      const isPenalty = Math.random() < PENALTY_GOAL_RATE;
+  // Add starting XI to appearances first (in order)
+  homeXI.forEach((p) => homeAppearances.push(p));
+  awayXI.forEach((p) => awayAppearances.push(p));
 
-      let scorer: IPlayer;
-      if (isPenalty) {
-        // Penalty takers: prefer FWD, then CAM, then anyone
-        const penaltyCandidates = scoringCandidates.filter(
-          (p) => p.positionGroup === 'FWD' || p.position === 'CAM'
-        );
-        const pool = penaltyCandidates.length > 0 ? penaltyCandidates : scoringCandidates;
-        scorer = weightedPick(pool, (p) => p.stats.shooting / 100);
-      } else {
-        scorer = weightedPick(scoringCandidates, (p) => {
-          const posWeight = p.positionGroup === 'FWD' ? 5 : p.positionGroup === 'MID' ? 2 : 0.5;
-          return (p.stats.shooting / 100) * posWeight;
-        });
-      }
-
-      const assisterCandidates = scoringCandidates.filter((p) => p.apiId !== scorer.apiId);
-      let assister: IPlayer | undefined;
-      // Penalties rarely have a credited assist (25% chance)
-      const assistChance = isPenalty ? 0.25 : 0.75;
-      if (assisterCandidates.length > 0 && Math.random() < assistChance) {
-        assister = weightedPick(assisterCandidates, (p) => p.stats.passing / 100);
-      }
-
-      goals.push({
-        scorerName: scorer.shortName,
-        scorerApiId: scorer.apiId,
-        assisterName: assister?.shortName,
-        assisterApiId: assister?.apiId,
-        team: teamName,
-        isPenalty,
-      });
-    }
-  };
-
-  assignGoalsForTeam(homeTeamName, homeScore, homeXI);
-  assignGoalsForTeam(awayTeamName, awayScore, awayXI);
-
-  // ── Assign cards ──────────────────────────────────────────────────────────
-  const assignCardsForTeam = (teamName: string, xi: IPlayer[]) => {
-    xi.forEach((p) => {
-      const yellowProb = 0.05 + (p.stats.physical / 100) * 0.06;
-      if (Math.random() < yellowProb) {
-        cards.push({ playerName: p.name, playerApiId: p.apiId, team: teamName, type: 'yellow' });
-        if (Math.random() < 0.04) {
-          cards.push({ playerName: p.name, playerApiId: p.apiId, team: teamName, type: 'red' });
-        }
-      }
-    });
-  };
-
-  assignCardsForTeam(homeTeamName, homeXI);
-  assignCardsForTeam(awayTeamName, awayXI);
-
-  // ── Simulate substitutions ────────────────────────────────────────────────
-  const homeAppearances: IPlayer[] = [...homeXI];
-  const awayAppearances: IPlayer[] = [...awayXI];
+  const homeSubbedOffMap = new Map<number, number>(); // playerApiId -> minute subbed off
+  const awaySubbedOffMap = new Map<number, number>();
 
   const simulateSubstitutions = (
     teamName: string,
     xi: IPlayer[],
     fullSquad: IPlayer[],
-    appearances: IPlayer[]
+    appearances: IPlayer[],
+    subbedOffMap: Map<number, number>
   ) => {
     const bench = fullSquad.filter((p) => !xi.some((s) => String(s._id) === String(p._id)));
     if (bench.length === 0) return;
@@ -382,37 +329,119 @@ export function simulateMatch(
       const playerOn = topN(subPool, 1, (p) => p.stats.overall)[0];
       usedBench.add(String(playerOn._id));
 
+      // Track that playerOff was subbed off at this minute
+      subbedOffMap.set(playerOff.apiId, minute);
+
       substitutions.push({
-        playerOffName: playerOff.name,
+        playerOffName: playerOff.shortName,
         playerOffApiId: playerOff.apiId,
-        playerOnName: playerOn.name,
+        playerOnName: playerOn.shortName,
         playerOnApiId: playerOn.apiId,
         team: teamName,
         minute,
       });
 
-      appearances.push(playerOn);
-
-      // Substitute can score/assist for remaining time (weighted by time on pitch)
-      const timeWeight = (90 - minute) / 90;
-      if (Math.random() < timeWeight * 0.25 && playerOn.positionGroup !== 'GK') {
-        const isPenalty = Math.random() < PENALTY_GOAL_RATE;
-        goals.push({
-          scorerName: playerOn.shortName,
-          scorerApiId: playerOn.apiId,
-          team: teamName,
-          isPenalty,
-        });
-        if (teamName === homeTeamName) {
-          // These bonus goals do NOT change the match score — they are narrative only
-          // (score was already determined by Poisson). We skip modifying homeScore/awayScore.
-        }
+      // Add substitute to appearances if not already there (shouldn't happen, but be safe)
+      if (!appearances.some((p) => String(p._id) === String(playerOn._id))) {
+        appearances.push(playerOn);
       }
     }
   };
 
-  simulateSubstitutions(homeTeamName, homeXI, homePlayers, homeAppearances);
-  simulateSubstitutions(awayTeamName, awayXI, awayPlayers, awayAppearances);
+  simulateSubstitutions(homeTeamName, homeXI, homePlayers, homeAppearances, homeSubbedOffMap);
+  simulateSubstitutions(awayTeamName, awayXI, awayPlayers, awayAppearances, awaySubbedOffMap);
+
+  // ── Assign goals ──────────────────────────────────────────────────────────
+  const assignGoalsForTeam = (
+    teamName: string,
+    numGoals: number,
+    xi: IPlayer[],
+    subbedOffMap: Map<number, number>
+  ) => {
+    const scoringCandidates = xi.filter((p) => p.positionGroup !== 'GK');
+    if (scoringCandidates.length === 0) return;
+
+    const goalMinutes = new Set<number>();
+    // Generate unique goal minutes for each goal (realistic distribution: more in second half)
+    for (let i = 0; i < numGoals; i++) {
+      let minute: number;
+      do {
+        // 70% chance second half (45-90), 30% first half (1-44)
+        minute = Math.random() < 0.7
+          ? 45 + Math.floor(Math.random() * 46)
+          : 1 + Math.floor(Math.random() * 44);
+      } while (goalMinutes.has(minute) && goalMinutes.size < 90);
+      goalMinutes.add(minute);
+    }
+    const sortedMinutes = Array.from(goalMinutes).sort((a, b) => a - b);
+
+    for (let i = 0; i < numGoals; i++) {
+      const goalMinute = sortedMinutes[i];
+      const isPenalty = Math.random() < PENALTY_GOAL_RATE;
+
+      // Filter scorers: exclude those subbed off before this goal's minute
+      const availableScorers = scoringCandidates.filter(
+        (p) => !subbedOffMap.has(p.apiId) || subbedOffMap.get(p.apiId)! > goalMinute
+      );
+
+      if (availableScorers.length === 0) continue; // Skip this goal if no available scorers
+
+      let scorer: IPlayer;
+      if (isPenalty) {
+        // Penalty takers: prefer FWD, then CAM, then anyone
+        const penaltyCandidates = availableScorers.filter(
+          (p) => p.positionGroup === 'FWD' || p.position === 'CAM'
+        );
+        const pool = penaltyCandidates.length > 0 ? penaltyCandidates : availableScorers;
+        scorer = weightedPick(pool, (p) => p.stats.shooting / 100);
+      } else {
+        scorer = weightedPick(availableScorers, (p) => {
+          const posWeight = p.positionGroup === 'FWD' ? 5 : p.positionGroup === 'MID' ? 2 : 0.5;
+          return (p.stats.shooting / 100) * posWeight;
+        });
+      }
+
+      // Filter assisters: exclude those subbed off before this goal's minute
+      const availableAssisters = scoringCandidates.filter(
+        (p) => p.apiId !== scorer.apiId && (!subbedOffMap.has(p.apiId) || subbedOffMap.get(p.apiId)! > goalMinute)
+      );
+      let assister: IPlayer | undefined;
+      // Penalties rarely have a credited assist (25% chance)
+      const assistChance = isPenalty ? 0.25 : 0.75;
+      if (availableAssisters.length > 0 && Math.random() < assistChance) {
+        assister = weightedPick(availableAssisters, (p) => p.stats.passing / 100);
+      }
+
+      goals.push({
+        scorerName: scorer.shortName,
+        scorerApiId: scorer.apiId,
+        assisterName: assister?.shortName,
+        assisterApiId: assister?.apiId,
+        team: teamName,
+        isPenalty,
+        minute: goalMinute,
+      });
+    }
+  };
+
+  assignGoalsForTeam(homeTeamName, homeScore, homeXI, homeSubbedOffMap);
+  assignGoalsForTeam(awayTeamName, awayScore, awayXI, awaySubbedOffMap);
+
+  // ── Assign cards ──────────────────────────────────────────────────────────
+  const assignCardsForTeam = (teamName: string, xi: IPlayer[]) => {
+    xi.forEach((p) => {
+      const yellowProb = 0.05 + (p.stats.physical / 100) * 0.06;
+      if (Math.random() < yellowProb) {
+        cards.push({ playerName: p.name, playerApiId: p.apiId, team: teamName, type: 'yellow' });
+        if (Math.random() < 0.04) {
+          cards.push({ playerName: p.name, playerApiId: p.apiId, team: teamName, type: 'red' });
+        }
+      }
+    });
+  };
+
+  assignCardsForTeam(homeTeamName, homeXI);
+  assignCardsForTeam(awayTeamName, awayXI);
 
   return {
     homeScore,

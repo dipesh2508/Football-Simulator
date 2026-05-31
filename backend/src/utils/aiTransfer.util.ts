@@ -55,7 +55,7 @@ export async function runAITransfers(
         if (!rollTransferDice(likelihood.score)) continue;
 
         remainingBudget -= candidate.marketValue;
-        bought.push(candidate.name);
+        bought.push(candidate.shortName);
         boughtIds.push(candidate._id as Types.ObjectId);
         purchased++;
         pool = pool.filter((p) => p.apiId !== candidate.apiId);

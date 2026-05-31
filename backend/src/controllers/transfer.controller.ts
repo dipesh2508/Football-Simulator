@@ -64,7 +64,7 @@ export async function buyPlayer(req: Request, res: Response): Promise<void> {
   if (!success) {
     res.status(200).json({
       success: false,
-      message: `Deal failed — ${player.name} chose not to join ${session.userTeam}.`,
+      message: `Deal failed — ${player.shortName} chose not to join ${session.userTeam}.`,
       likelihood,
     });
     return;
@@ -87,10 +87,10 @@ export async function buyPlayer(req: Request, res: Response): Promise<void> {
 
   res.json({
     success: true,
-    message: `${player.name} has joined ${session.userTeam}!`,
+    message: `${player.shortName} has joined ${session.userTeam}!`,
     budget: session.budget,
     likelihood,
-    player: { name: player.name, position: player.position, overall: player.stats.overall },
+    player: { name: player.shortName, position: player.position, overall: player.stats.overall },
   });
 }
 
@@ -147,7 +147,7 @@ export async function sellPlayer(req: Request, res: Response): Promise<void> {
 
   res.json({
     success: true,
-    message: `${player.name} sold for £${sellFee}m`,
+    message: `${player.shortName} sold for £${sellFee}m`,
     budget: session.budget,
   });
 }

@@ -18,6 +18,10 @@ export default function TransfersPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [search, setSearch] = useState('');
   const [posFilter, setPosFilter] = useState('');
+  const [leagueFilter, setLeagueFilter] = useState('');
+  const [minPrice, setMinPrice] = useState('');
+  const [maxPrice, setMaxPrice] = useState('');
+  const [onlyAffordable, setOnlyAffordable] = useState(false);
   const [loading, setLoading] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
@@ -31,18 +35,22 @@ export default function TransfersPage() {
     if (!sessionId) return;
     setLoading(true);
     try {
+      const maxPriceForFilter = onlyAffordable ? budget : (maxPrice ? parseFloat(maxPrice) : undefined);
       const res = await api.getTransferMarket(sessionId, {
         page,
         limit: 18,
         search: search || undefined,
         position: posFilter || undefined,
+        league: leagueFilter || undefined,
+        minValue: minPrice ? parseFloat(minPrice) : undefined,
+        maxValue: maxPriceForFilter,
       });
       setMarketPlayers(res.players);
       setTotalPages(res.pagination.totalPages);
     } finally {
       setLoading(false);
     }
-  }, [sessionId, page, search, posFilter]);
+  }, [sessionId, page, search, posFilter, leagueFilter, minPrice, maxPrice, onlyAffordable, budget]);
 
   const fetchSquad = useCallback(async () => {
     if (!sessionId) return;
@@ -154,25 +162,73 @@ export default function TransfersPage() {
         <div className="lg:col-span-2 space-y-3">
           <h2 className="text-lg font-bold text-zinc-800 dark:text-zinc-200">Transfer Market</h2>
           {/* Filters */}
-          <div className="flex gap-2 flex-wrap">
-            <input
-              type="text"
-              placeholder="Search player…"
-              value={search}
-              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-              className="rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
-            />
-            <select
-              value={posFilter}
-              onChange={(e) => { setPosFilter(e.target.value); setPage(1); }}
-              className="rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
-            >
-              <option value="">All Positions</option>
-              <option value="GK">GK</option>
-              <option value="DEF">DEF</option>
-              <option value="MID">MID</option>
-              <option value="FWD">FWD</option>
-            </select>
+          <div className="space-y-3 p-4 rounded-lg bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800">
+            {/* Search and Positions Row */}
+            <div className="flex gap-2 flex-wrap">
+              <input
+                type="text"
+                placeholder="Search player…"
+                value={search}
+                onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+                className="flex-1 min-w-[200px] rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+              />
+              <select
+                value={posFilter}
+                onChange={(e) => { setPosFilter(e.target.value); setPage(1); }}
+                className="rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+              >
+                <option value="">All Positions</option>
+                <option value="GK">GK</option>
+                <option value="DEF">DEF</option>
+                <option value="MID">MID</option>
+                <option value="FWD">FWD</option>
+              </select>
+              <select
+                value={leagueFilter}
+                onChange={(e) => { setLeagueFilter(e.target.value); setPage(1); }}
+                className="rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+              >
+                <option value="">All Leagues</option>
+                <option value="Premier League">Premier League</option>
+                <option value="La Liga">La Liga</option>
+                <option value="Serie A">Serie A</option>
+                <option value="Bundesliga">Bundesliga</option>
+                <option value="Ligue 1">Ligue 1</option>
+              </select>
+            </div>
+
+            {/* Price Range Row */}
+            <div className="flex gap-2 flex-wrap items-center">
+              <label className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">Price Range (M):</label>
+              <input
+                type="number"
+                placeholder="Min"
+                value={minPrice}
+                onChange={(e) => { setMinPrice(e.target.value); setPage(1); }}
+                className="w-20 rounded-lg border border-zinc-300 px-2 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+              />
+              <span className="text-zinc-400">—</span>
+              <input
+                type="number"
+                placeholder="Max"
+                value={maxPrice}
+                onChange={(e) => { setMaxPrice(e.target.value); setPage(1); }}
+                className="w-20 rounded-lg border border-zinc-300 px-2 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+              />
+              <label className="flex items-center gap-2 ml-auto cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={onlyAffordable}
+                  onChange={(e) => {
+                    setOnlyAffordable(e.target.checked);
+                    if (e.target.checked) setMaxPrice('');
+                    setPage(1);
+                  }}
+                  className="rounded"
+                />
+                <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">Only Affordable</span>
+              </label>
+            </div>
           </div>
 
           {loading ? (

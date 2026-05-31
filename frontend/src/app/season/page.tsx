@@ -6,12 +6,27 @@ import { useGame } from '@/context/GameContext';
 import { api, SimulateResponse, GoalEvent, SubstitutionEvent } from '@/lib/api';
 import { getClubLogoWithFallback } from '@/lib/logos';
 
-function GoalLog({ goals }: { goals: GoalEvent[] }) {
+function GoalLog({ goals, homeTeam, awayTeam }: { goals: GoalEvent[]; homeTeam: string; awayTeam: string }) {
+  const homeGoals = goals.filter((g) => g.team === homeTeam);
+  const awayGoals = goals.filter((g) => g.team === awayTeam);
+
   return (
     <div className="space-y-1 mt-2">
-      {goals.map((g, i) => (
-        <div key={i} className="flex items-start gap-2 text-xs text-zinc-300">
+      {homeGoals.map((g, i) => (
+        <div key={`home-${i}`} className="flex items-start gap-2 text-xs text-zinc-300">
           <span className="text-yellow-400 font-bold w-4 text-right">{g.minute}&apos;</span>
+          <span>
+            {g.isPenalty && <span className="text-orange-400 font-semibold">[P] </span>}
+            <span className="font-medium text-white">{g.scorerName}</span>
+            {g.assisterName && (
+              <span className="text-zinc-400"> (assist: {g.assisterName})</span>
+            )}
+          </span>
+        </div>
+      ))}
+      {awayGoals.map((g, i) => (
+        <div key={`away-${i}`} className="flex items-start gap-2 text-xs text-zinc-300 flex-row-reverse text-right">
+          <span className="text-yellow-400 font-bold w-4 text-left">{g.minute}&apos;</span>
           <span>
             {g.isPenalty && <span className="text-orange-400 font-semibold">[P] </span>}
             <span className="font-medium text-white">{g.scorerName}</span>
@@ -25,13 +40,26 @@ function GoalLog({ goals }: { goals: GoalEvent[] }) {
   );
 }
 
-function SubLog({ subs }: { subs: SubstitutionEvent[] }) {
+function SubLog({ subs, homeTeam, awayTeam }: { subs: SubstitutionEvent[]; homeTeam: string; awayTeam: string }) {
   if (!subs || subs.length === 0) return null;
+  const homeSubs = subs.filter((s) => s.team === homeTeam);
+  const awaySubs = subs.filter((s) => s.team === awayTeam);
+
   return (
     <div className="space-y-1 mt-2 pt-2 border-t border-zinc-700">
-      {subs.map((s, i) => (
-        <div key={i} className="flex items-start gap-2 text-xs text-zinc-400">
+      {homeSubs.map((s, i) => (
+        <div key={`home-${i}`} className="flex items-start gap-2 text-xs text-zinc-400">
           <span className="text-blue-400 font-bold w-4 text-right">{s.minute}&apos;</span>
+          <span>
+            <span className="text-red-400">↓ {s.playerOffName}</span>
+            {' → '}
+            <span className="text-emerald-400">↑ {s.playerOnName}</span>
+          </span>
+        </div>
+      ))}
+      {awaySubs.map((s, i) => (
+        <div key={`away-${i}`} className="flex items-start gap-2 text-xs text-zinc-400 flex-row-reverse text-right">
+          <span className="text-blue-400 font-bold w-4 text-left">{s.minute}&apos;</span>
           <span>
             <span className="text-red-400">↓ {s.playerOffName}</span>
             {' → '}
@@ -106,8 +134,8 @@ function MatchCard({
 
       {open && (
         <div className="px-4 pb-3">
-          {match.goals.length > 0 && <GoalLog goals={match.goals} />}
-          {match.substitutions && <SubLog subs={match.substitutions} />}
+          {match.goals.length > 0 && <GoalLog goals={match.goals} homeTeam={match.homeTeam} awayTeam={match.awayTeam} />}
+          {match.substitutions && <SubLog subs={match.substitutions} homeTeam={match.homeTeam} awayTeam={match.awayTeam} />}
         </div>
       )}
     </div>
